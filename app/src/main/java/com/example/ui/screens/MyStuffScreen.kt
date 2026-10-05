@@ -27,7 +27,8 @@ enum class MyStuffTab(val title: String) {
     PROFILE("Profile"),
     COLLECTIONS("Collections"),
     SAVED("Saved"),
-    RECENTLY_WATCHED("Recently Watched")
+    RECENTLY_WATCHED("Recently Watched"),
+    SETTINGS("Settings")
 }
 
 @Composable
@@ -230,6 +231,12 @@ fun MyStuffScreen(
                         repository = repository,
                         onMediaSelect = { item, list -> onMediaSelect(item, list) },
                         onLike = onFavoriteToggle
+                    )
+                }
+                MyStuffTab.SETTINGS -> {
+                    ThemeSettingsContent(
+                        currentMode = themeMode,
+                        onModeSelected = onThemeModeChange
                     )
                 }
             }
