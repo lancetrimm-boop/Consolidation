@@ -1,9 +1,13 @@
 package com.example.ui.theme
 
 import android.content.Context
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 enum class ThemeMode(val label: String) {
     SYSTEM("System"),
@@ -11,22 +15,23 @@ enum class ThemeMode(val label: String) {
     DARK("Dark")
 }
 
-class ThemePreferences(context: Context) {
-    private val prefs = context.getSharedPreferences("aura_theme_prefs", Context.MODE_PRIVATE)
+private val Context.themeDataStore: DataStore<Preferences> by preferencesDataStore(name = "aura_theme_prefs")
 
-    private val _themeMode = MutableStateFlow(
-        ThemeMode.entries.getOrNull(prefs.getInt(KEY_THEME_MODE, 0)) ?: ThemeMode.SYSTEM
-    )
-    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+class ThemePreferences(private val context: Context) {
 
-    fun setThemeMode(mode: ThemeMode) {
-        if (_themeMode.value != mode) {
-            _themeMode.value = mode
-            prefs.edit().putInt(KEY_THEME_MODE, mode.ordinal).apply()
+    private val themeModeKey = stringPreferencesKey("theme_mode")
+
+    val themeMode: Flow<ThemeMode> = context.themeDataStore.data.map { prefs ->
+        when (prefs[themeModeKey]) {
+            "LIGHT" -> ThemeMode.LIGHT
+            "DARK" -> ThemeMode.DARK
+            else -> ThemeMode.SYSTEM
         }
     }
 
-    companion object {
-        private const val KEY_THEME_MODE = "theme_mode"
+    suspend fun setThemeMode(mode: ThemeMode) {
+        context.themeDataStore.edit { prefs ->
+            prefs[themeModeKey] = mode.name
+        }
     }
 }
