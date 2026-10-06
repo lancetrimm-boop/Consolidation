@@ -230,7 +230,7 @@ object RecommendationEngine {
         }
         
         // Final fallback (Safe degraded state - used in tests or when AI core fails or returns empty)
-        val basePool = (inputItems ?: repository.mediaItems.value).filter { item ->
+        val basePool = (inputItems ?: repository.visibleMediaItems.value).filter { item ->
             if (item.isDeleted || item.itemCount != null) return@filter false
             val isVideo = item.mediaType.equals("VIDEO", ignoreCase = true) || item.mediaType.equals("MOVIE", ignoreCase = true) || item.mediaType.startsWith("VIDEO", ignoreCase = true) || item.mediaType.startsWith("MOVIE", ignoreCase = true)
             if (isVideo) {

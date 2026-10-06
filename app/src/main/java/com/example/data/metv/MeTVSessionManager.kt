@@ -58,7 +58,7 @@ class MeTVSessionManager(
         _experienceRequest.value = request
 
         scope.launch {
-            val availableMedia = repository.mediaItems.value
+            val availableMedia = repository.visibleMediaItems.value
             val tasteDNA = repository.tasteDNA.value
             val feedback = repository.getDatabase()?.programmingFeedbackDao()?.getAllFeedback() ?: emptyList()
             val skipEvents = repository.getDatabase()?.aiSkipDao()?.observeAllEvents()?.firstOrNull() ?: emptyList()
@@ -104,7 +104,7 @@ class MeTVSessionManager(
         val remaining = activePlaylist.items.size - activePlaylist.currentIndex
         if (remaining <= REPLENISH_THRESHOLD && replenishmentJob?.isActive != true) {
             replenishmentJob = scope.launch {
-                val availableMedia = repository.mediaItems.value
+                val availableMedia = repository.visibleMediaItems.value
                 val tasteDNA = repository.tasteDNA.value
                 val feedback = repository.getDatabase()?.programmingFeedbackDao()?.getAllFeedback() ?: emptyList()
                 val skipEvents = repository.getDatabase()?.aiSkipDao()?.observeAllEvents()?.firstOrNull() ?: emptyList()
