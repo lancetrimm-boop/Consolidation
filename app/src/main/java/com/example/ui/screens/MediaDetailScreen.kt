@@ -34,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -72,6 +73,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Delete
@@ -87,6 +89,7 @@ import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
@@ -209,6 +212,8 @@ fun MediaDetailScreen(
         playlistState?.items?.getOrNull(currentItemIndex) ?: item
     }
 
+    val isSaved by repository.observeIsSaved(activeItem.id).collectAsState(initial = false)
+
     var isAbRepeatActive by remember(activeItem.id) { mutableStateOf(false) }
     var abPointA by remember(activeItem.id) { mutableStateOf<Long?>(null) }
     var abPointB by remember(activeItem.id) { mutableStateOf<Long?>(null) }
@@ -284,6 +289,15 @@ fun MediaDetailScreen(
             delay(100L)
         }
         exposureTracker?.updatePhotoProgress(totalDelayMs, totalDelayMs)
+
+        repository.interactionRepository?.let { iRepo ->
+            com.example.data.AuraInteractionService.logInteraction(
+                repository,
+                iRepo,
+                com.example.data.AuraInteractionType.MEDIA_COMPLETED,
+                mediaId = activeItem.id
+            )
+        }
 
         if (isAtEndOfPlaylist) {
             showEndOfChannelPrompt = true
@@ -1002,6 +1016,19 @@ fun MediaDetailScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
+                    IconButton(
+                        onClick = { repository.toggleSaved(activeItem.id) },
+                        modifier = Modifier.testTag("detail_save_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                            contentDescription = if (isSaved) "Remove from Saved" else "Save",
+                            tint = if (isSaved) DiscoveryViolet else Color.White
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = if (activeClipCandidate != null) "Viewing Clip: ${activeClipCandidate?.title}" else activeItem.title,
@@ -1296,6 +1323,8 @@ fun MediaDetailScreen(
     if (showPlayerMenu) {
         SwipeMenuSheet(
             activeItem = activeItem,
+            isSaved = isSaved,
+            onToggleSaved = { id -> repository.toggleSaved(id) },
             isVisualSearchActive = activeReferences.isNotEmpty(),
             currentRating = currentRating,
             playbackSpeed = playbackSpeed,

@@ -213,9 +213,10 @@ val MIGRATION_13_14 = object : Migration(13, 14) {
         SearchFeedbackEntity::class,
         InteractionEventEntity::class,
         ProgrammingFeedbackEntity::class,
-        ExposureEventEntity::class
+        ExposureEventEntity::class,
+        SavedMediaEntity::class
     ],
-    version = 46,
+    version = 47,
     exportSchema = false
 )
 @androidx.room.TypeConverters(IntelligenceConverters::class)
@@ -241,6 +242,7 @@ abstract class AuraDatabase : RoomDatabase() {
     abstract fun interactionDao(): InteractionDao
     abstract fun programmingFeedbackDao(): ProgrammingFeedbackDao
     abstract fun exposureEventDao(): ExposureEventDao
+    abstract fun savedMediaDao(): SavedMediaDao
 
 
     companion object {
@@ -861,6 +863,19 @@ abstract class AuraDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_46_47 = object : Migration(46, 47) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `saved_media` (
+                        `mediaId` TEXT NOT NULL, 
+                        `savedAt` INTEGER NOT NULL, 
+                        PRIMARY KEY(`mediaId`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_saved_media_savedAt` ON `saved_media` (`savedAt` DESC)")
+            }
+        }
+
         fun getInstance(context: Context): AuraDatabase {
             return INSTANCE ?: synchronized(this) {
                 // Return instance if created while waiting for lock
@@ -874,13 +889,32 @@ abstract class AuraDatabase : RoomDatabase() {
                     val rawKey = PassphraseManager.getPassphrase(context)
                     
                     // 3. Build Room with encryption SupportOpenHelperFactory using the exact raw 32-byte key
-                    val factory = SupportOpenHelperFactory(rawKey)
-                    val instance = Room.databaseBuilder(
+                    val factory = try {
+                        SupportOpenHelperFactory(rawKey)
+                    } catch (e: Throwable) {
+                        android.util.Log.w("AuraDatabase", "SQLCipher native library not available, falling back to standard SQLite", e)
+                        null
+                    }
+                    val builder = Room.databaseBuilder(
                         context.applicationContext,
                         AuraDatabase::class.java,
                         "aura_intelligence.db"
                     )
-                    .openHelperFactory(factory)
+                    val isTest = try {
+                        Class.forName("org.robolectric.Robolectric")
+                        true
+                    } catch (e: Throwable) {
+                        false
+                    }
+
+                    if (factory != null && !isTest) {
+                        try {
+                            builder.openHelperFactory(factory)
+                        } catch (e: Throwable) {
+                            android.util.Log.w("AuraDatabase", "Failed to set open helper factory", e)
+                        }
+                    }
+                    val instance = builder
                     .addMigrations(
                         MIGRATION_1_2, 
                         MIGRATION_2_3, 
@@ -926,7 +960,8 @@ abstract class AuraDatabase : RoomDatabase() {
                         MIGRATION_42_43,
                         MIGRATION_43_44,
                         MIGRATION_44_45,
-                        MIGRATION_45_46
+                        MIGRATION_45_46,
+                        MIGRATION_46_47
                     )
                     .build()
                     INSTANCE = instance

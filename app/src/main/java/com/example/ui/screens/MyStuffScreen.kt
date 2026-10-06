@@ -3,6 +3,9 @@ package com.example.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -17,7 +20,8 @@ import com.example.ui.theme.*
 
 enum class MyStuffTab(val title: String) {
     PROFILE("Profile"),
-    COLLECTIONS("Collections")
+    COLLECTIONS("Collections"),
+    SAVED("Saved")
 }
 
 @Composable
@@ -87,12 +91,25 @@ fun MyStuffScreen(
                                 modifier = Modifier.padding(horizontal = 16.dp),
                                 contentAlignment = androidx.compose.ui.Alignment.Center
                             ) {
-                                Text(
-                                    text = tab.title,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Row(
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (tab == MyStuffTab.SAVED) {
+                                        Icon(
+                                            imageVector = if (isSelected) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                            contentDescription = "Saved",
+                                            tint = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = tab.title,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
@@ -124,6 +141,13 @@ fun MyStuffScreen(
                         onFavoriteToggle = onFavoriteToggle,
                         onLaunchAuraMoments = onLaunchAuraMoments,
                         onSearch = onSearch
+                    )
+                }
+                MyStuffTab.SAVED -> {
+                    SavedScreen(
+                        repository = repository,
+                        onMediaSelect = onMediaSelect,
+                        onLike = onFavoriteToggle
                     )
                 }
             }

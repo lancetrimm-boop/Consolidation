@@ -201,6 +201,14 @@ private fun SlideshowRenderer(
         }
         
         if (isPlaying) {
+            repository.interactionRepository?.let { iRepo ->
+                com.example.data.AuraInteractionService.logInteraction(
+                    repository,
+                    iRepo,
+                    com.example.data.AuraInteractionType.MEDIA_COMPLETED,
+                    mediaId = currentItem.id
+                )
+            }
             // Auto advance
             if (currentIndex < items.size - 1) {
                 currentIndex++

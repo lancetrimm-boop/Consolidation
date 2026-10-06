@@ -25,6 +25,8 @@ import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import kotlin.random.Random
 
@@ -646,7 +648,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     fun recordMediaCompletion(id: String) {
         getMediaItemById(id)?.let { item ->
             _mediaItems.update { list -> list.map { if (it.id == id) it.copy(progress = 1.0f) else it } }
-            scope.launch { database?.mediaDao()?.let { dao -> dao.getMediaById(id)?.let { dao.update(it.copy(progress = 1.0f)) } } }
+            scope.launch { 
+                database?.mediaDao()?.let { dao -> dao.getMediaById(id)?.let { dao.update(it.copy(progress = 1.0f)) } }
+                database?.savedMediaDao()?.deleteMedia(id)
+            }
             if (_tasteDNA.value.isFineTuningEnabled) { var dna = _tasteDNA.value; PersonalizationTraitMapper.getEffectiveTraitAdjustments(item).forEach { (dim, mult) -> dna = dna.updateLearnedDimension(dim, mult * 0.01, 0.20) }; updateTasteDNA(dna, false, "Completion") }
             learnPreferenceSignals(item, isCompletion = true, isSuccess = true)
         }
@@ -1011,6 +1016,68 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
     fun addToFavorites(id: String) { setFavorite(id, true) }
     fun removeFromFavorites(id: String) { setFavorite(id, false) }
+
+    // --- Saved Media (Bookmarking) API ---
+
+    fun saveMedia(mediaId: String) {
+        if (mediaId.isBlank()) return
+        scope.launch {
+            val savedDao = database?.savedMediaDao() ?: return@launch
+            savedDao.saveMedia(SavedMediaEntity(mediaId = mediaId, savedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun removeMedia(mediaId: String) {
+        if (mediaId.isBlank()) return
+        scope.launch {
+            val savedDao = database?.savedMediaDao() ?: return@launch
+            savedDao.deleteMedia(mediaId)
+        }
+    }
+
+    private val savedToggleMutex = kotlinx.coroutines.sync.Mutex()
+
+    fun toggleSaved(mediaId: String) {
+        if (mediaId.isBlank()) return
+        scope.launch {
+            savedToggleMutex.withLock {
+                val savedDao = database?.savedMediaDao() ?: return@withLock
+                val isCurrentlySaved = savedDao.isSaved(mediaId)
+                if (isCurrentlySaved) {
+                    savedDao.deleteMedia(mediaId)
+                } else {
+                    savedDao.saveMedia(SavedMediaEntity(mediaId = mediaId, savedAt = System.currentTimeMillis()))
+                }
+            }
+        }
+    }
+
+    suspend fun isSaved(mediaId: String): Boolean {
+        val savedDao = database?.savedMediaDao() ?: return false
+        return savedDao.isSaved(mediaId)
+    }
+
+    fun observeIsSaved(mediaId: String): Flow<Boolean> {
+        val savedDao = database?.savedMediaDao() ?: return flowOf(false)
+        return savedDao.observeIsSaved(mediaId)
+    }
+
+    fun observeSavedMedia(): Flow<List<MediaItem>> {
+        val savedDao = database?.savedMediaDao() ?: return flowOf(emptyList())
+        return savedDao.getAllSaved().map { savedEntities ->
+            val dao = database?.mediaDao()
+            savedEntities.mapNotNull { entity ->
+                val item = _mediaItems.value.find { it.id == entity.mediaId }
+                    ?: dao?.getMediaById(entity.mediaId)?.toMediaItem()
+                item
+            }.filter { isItemVisibleInLibrary(it) }
+        }
+    }
+
+    suspend fun getSavedCount(): Int {
+        val savedDao = database?.savedMediaDao() ?: return 0
+        return savedDao.getSavedCount()
+    }
     
     fun recordLike(id: String) { 
         scope.launch { database?.microMomentDao()?.insertMoment(MicroMomentEntity(mediaId = id, tapCount = 1, timestamp = System.currentTimeMillis())) }

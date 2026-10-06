@@ -21,11 +21,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -87,6 +89,8 @@ fun SwipeMenuSheet(
     onSeeSimilar: (MediaItem) -> Unit,
     onBeginVisualSearch: (MediaItem) -> Unit,
     onGenerateClips: (MediaItem) -> Unit,
+    isSaved: Boolean = false,
+    onToggleSaved: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -319,6 +323,17 @@ fun SwipeMenuSheet(
                             }
                             .testTag("favorite_button")
                             .clickable { onFavoriteToggle(activeItem.id) }
+                    )
+
+                    // Saved / Bookmark Icon
+                    Icon(
+                        imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                        contentDescription = if (isSaved) "Remove from Saved" else "Save",
+                        tint = if (isSaved) DiscoveryViolet else AuraCrispWhite,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .testTag("saved_button")
+                            .clickable { onToggleSaved(activeItem.id) }
                     )
 
                     // Delete Trash Icon -> Triggers Confirmation Flow
