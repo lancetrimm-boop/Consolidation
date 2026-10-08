@@ -66,7 +66,20 @@ class ChannelProgrammer(
                     }
                 }
             }
-            return context.filterType
+            val filter = context.filterType
+            val isVideoFilter = filter.equals("VIDEO", ignoreCase = true) || filter.equals("VIDEOS", ignoreCase = true)
+            if (isVideoFilter) {
+                val hasVideos = context.availableMedia.any {
+                    it.mediaType.equals("VIDEO", ignoreCase = true) ||
+                    it.mediaType.equals("MOVIE", ignoreCase = true) ||
+                    it.mediaType.startsWith("VIDEO", ignoreCase = true) ||
+                    it.mediaType.startsWith("MOVIE", ignoreCase = true)
+                }
+                if (!hasVideos && context.availableMedia.isNotEmpty()) {
+                    return "ALL"
+                }
+            }
+            return filter
         }
 
         fun filterPool(pool: List<MediaItem>, filterType: String): List<MediaItem> {

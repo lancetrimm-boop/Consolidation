@@ -59,6 +59,7 @@ fun AuraChannelsScreen(
     val selectedFilterType by viewModel.selectedFilterType.collectAsStateWithLifecycle()
     val previews by viewModel.channelPreviews.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val slideshowDelaySec by viewModel.slideshowDelaySeconds.collectAsStateWithLifecycle()
 
     var channelToDelete by remember { mutableStateOf<Channel?>(null) }
@@ -198,7 +199,7 @@ fun AuraChannelsScreen(
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            if (previews.isEmpty()) {
+            if (isLoading && previews.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -219,6 +220,36 @@ fun AuraChannelsScreen(
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            } else if (previews.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(AuraSpacing.CornerRadiusMedium))
+                        .padding(AuraSpacing.L),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Tv,
+                            contentDescription = "No Channels Available",
+                            tint = DiscoveryViolet.copy(alpha = 0.5f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(AuraSpacing.M))
+                        Text(
+                            text = "No Channels Available",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(AuraSpacing.S))
+                        Text(
+                            text = "No media matches the current filter option.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }

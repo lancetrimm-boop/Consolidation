@@ -40,6 +40,9 @@ class ChannelViewModel(
     private val _isRefreshing = MutableStateFlow<Boolean>(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    private val _isLoading = MutableStateFlow<Boolean>(true)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
     private var refreshEpoch = 0
     private val currentSessionExposures: Map<String, Int>
         get() = repository.exposureRepository?.getSessionExposuresSnapshot() ?: emptyMap()
@@ -49,17 +52,28 @@ class ChannelViewModel(
     private val availableMedia: List<MediaItem>
         get() {
             val eligible = repository.presentationMediaStore.eligibleMedia.value
-            return if (eligible.isNotEmpty()) {
+            val items = if (eligible.isNotEmpty()) {
                 eligible.map { it.toMediaItem() }
             } else {
-                try { repository.candidateEligibleMediaItems.value } catch (_: Exception) { try { repository.mediaItems.value } catch (_: Exception) { emptyList() } }
+                val candidateList = repository.candidateEligibleMediaItems.value
+                if (candidateList.isNotEmpty()) {
+                    candidateList
+                } else {
+                    repository.visibleMediaItems.value.ifEmpty { repository.mediaItems.value }
+                }
             }
+            return items.filter { !it.isDeleted && repository.isItemEligibleForCandidates(it) }
         }
 
     init {
-        // Observe eligibleMedia changes and refresh channel previews
+        // Observe eligibleMedia, candidateEligibleMediaItems, and visibleMediaItems changes to refresh channel previews
         viewModelScope.launch {
-            repository.presentationMediaStore.eligibleMedia.collect {
+            kotlinx.coroutines.flow.combine(
+                repository.presentationMediaStore.eligibleMedia,
+                repository.candidateEligibleMediaItems,
+                repository.visibleMediaItems,
+                _selectedFilterType
+            ) { _, _, _, _ -> }.collect {
                 loadChannelPreviews()
             }
         }
@@ -68,49 +82,54 @@ class ChannelViewModel(
 
     fun loadChannelPreviews() {
         viewModelScope.launch(repository.dispatcher) {
-            val available = availableMedia
-            val filter = _selectedFilterType.value
-            val context = ChannelProgrammingContext(
-                availableMedia = available,
-                filterType = filter,
-                tasteDNA = repository.tasteDNA.value,
-                exposureMap = available.associate { it.id to it.exposureCount },
-                refreshEpoch = refreshEpoch,
-                sessionExposures = currentSessionExposures,
-                decayedExposureMap = available.associate { it.id to it.getDecayedExposure() }
-            )
-
-            val usedPreviewIds = mutableSetOf<String>()
-
-            val states = allChannels.mapNotNull { channel ->
-                val programmed = programmer.programChannel(channel, context, limit = 20)
-                if (programmed.isEmpty()) return@mapNotNull null
-
-                val candidate = if (channel.channelKind == ChannelKind.SEARCH_SEEDED && channel.referenceMediaIds.isNotEmpty()) {
-                    val firstRefId = channel.referenceMediaIds.first()
-                    programmed.find { it.id == firstRefId }
-                        ?: available.find { it.id == firstRefId }
-                        ?: programmed.firstOrNull { it.id !in usedPreviewIds }
-                } else {
-                    programmed.firstOrNull { it.id !in usedPreviewIds }
-                }
-                if (candidate != null) {
-                    usedPreviewIds.add(candidate.id)
-                }
-
-                val adjustedFullItems = if (candidate != null) {
-                    listOf(candidate) + programmed.filter { it.id != candidate.id }
-                } else emptyList()
-
-                if (adjustedFullItems.isEmpty()) return@mapNotNull null
-
-                ChannelPreviewState(
-                    channel = channel,
-                    candidateItem = candidate,
-                    fullItems = adjustedFullItems
+            _isLoading.value = true
+            try {
+                val available = availableMedia
+                val filter = _selectedFilterType.value
+                val context = ChannelProgrammingContext(
+                    availableMedia = available,
+                    filterType = filter,
+                    tasteDNA = repository.tasteDNA.value,
+                    exposureMap = available.associate { it.id to it.exposureCount },
+                    refreshEpoch = refreshEpoch,
+                    sessionExposures = currentSessionExposures,
+                    decayedExposureMap = available.associate { it.id to it.getDecayedExposure() }
                 )
+
+                val usedPreviewIds = mutableSetOf<String>()
+
+                val states = allChannels.mapNotNull { channel ->
+                    val programmed = programmer.programChannel(channel, context, limit = 20)
+                    if (programmed.isEmpty()) return@mapNotNull null
+
+                    val candidate = if (channel.channelKind == ChannelKind.SEARCH_SEEDED && channel.referenceMediaIds.isNotEmpty()) {
+                        val firstRefId = channel.referenceMediaIds.first()
+                        programmed.find { it.id == firstRefId }
+                            ?: available.find { it.id == firstRefId }
+                            ?: programmed.firstOrNull { it.id !in usedPreviewIds }
+                    } else {
+                        programmed.firstOrNull { it.id !in usedPreviewIds }
+                    }
+                    if (candidate != null) {
+                        usedPreviewIds.add(candidate.id)
+                    }
+
+                    val adjustedFullItems = if (candidate != null) {
+                        listOf(candidate) + programmed.filter { it.id != candidate.id }
+                    } else emptyList()
+
+                    if (adjustedFullItems.isEmpty()) return@mapNotNull null
+
+                    ChannelPreviewState(
+                        channel = channel,
+                        candidateItem = candidate,
+                        fullItems = adjustedFullItems
+                    )
+                }
+                _channelPreviews.value = states
+            } finally {
+                _isLoading.value = false
             }
-            _channelPreviews.value = states
         }
     }
 
