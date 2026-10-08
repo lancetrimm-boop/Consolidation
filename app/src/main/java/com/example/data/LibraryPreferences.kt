@@ -11,6 +11,14 @@ enum class AutoScrollSpeed(val label: String, val pixelsPerSecond: Int) {
     FAST("Fast", 270)
 }
 
+enum class FirstRunScanState {
+    NEVER_REQUESTED,
+    DENIED,
+    GRANTED_SCAN_PENDING,
+    INITIAL_SCAN_COMPLETE,
+    PERMISSION_REVOKED
+}
+
 class LibraryPreferences(context: Context) {
     private val prefs = context.getSharedPreferences("aura_library_prefs", Context.MODE_PRIVATE)
 
@@ -21,6 +29,18 @@ class LibraryPreferences(context: Context) {
         AutoScrollSpeed.entries.getOrNull(prefs.getInt(KEY_AUTOSCROLL_SPEED, 1)) ?: AutoScrollSpeed.MEDIUM
     )
     val autoScrollSpeed: StateFlow<AutoScrollSpeed> = _autoScrollSpeed.asStateFlow()
+
+    private val _firstRunScanState = MutableStateFlow(
+        try {
+            FirstRunScanState.valueOf(
+                prefs.getString(KEY_FIRST_RUN_SCAN_STATE, FirstRunScanState.NEVER_REQUESTED.name)
+                    ?: FirstRunScanState.NEVER_REQUESTED.name
+            )
+        } catch (e: Exception) {
+            FirstRunScanState.NEVER_REQUESTED
+        }
+    )
+    val firstRunScanState: StateFlow<FirstRunScanState> = _firstRunScanState.asStateFlow()
 
     fun setGridDensity(density: Float) {
         val clamped = density.coerceIn(80f, 360f)
@@ -37,8 +57,16 @@ class LibraryPreferences(context: Context) {
         }
     }
 
+    fun setFirstRunScanState(state: FirstRunScanState) {
+        if (_firstRunScanState.value != state) {
+            _firstRunScanState.value = state
+            prefs.edit().putString(KEY_FIRST_RUN_SCAN_STATE, state.name).apply()
+        }
+    }
+
     companion object {
         private const val KEY_GRID_DENSITY = "library_grid_density"
         private const val KEY_AUTOSCROLL_SPEED = "library_autoscroll_speed"
+        private const val KEY_FIRST_RUN_SCAN_STATE = "first_run_scan_state"
     }
 }

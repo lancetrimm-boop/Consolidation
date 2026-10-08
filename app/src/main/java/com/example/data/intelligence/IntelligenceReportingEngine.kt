@@ -156,7 +156,7 @@ class IntelligenceReportingEngine(
             }
 
         // --- Update 7: Use SignatureStyleProvider ---
-        val items = repository.mediaItems.value
+        val items = repository.visibleMediaItems.value
         val styleProfile = SignatureStyleProvider.calculateStyleProfile(dna, items)
         val tasteClusters = styleProfile.activeStyles.filter { style ->
             // AURA REPAIR: Filter out styles that have no valid visual evidence (Stage 7 Fix)

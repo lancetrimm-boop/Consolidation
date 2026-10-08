@@ -103,10 +103,10 @@ class SortModeSwitchingTest {
     fun testSystemStatusPreservedInStandardSort() = runTest(testDispatcher) {
         val item1 = MediaItem(
             id = "1", 
-            title = "Failed Item", 
+            title = "Thumbnail Failed Item", 
             mediaType = "PHOTO", 
-            compatibilityStatus = CompatibilityStatus.ANALYSIS_FAILED,
-            selectionReason = "Retry Analysis"
+            compatibilityStatus = CompatibilityStatus.THUMBNAIL_FAILED,
+            selectionReason = "Retry Thumbnail"
         )
         repository.setMediaItemsForTesting(listOf(item1))
 
@@ -120,7 +120,7 @@ class SortModeSwitchingTest {
 
         val results = repository.latestAiSortRecommendation.value
         assertTrue("Should have results", results.isNotEmpty())
-        assertEquals("RETRY ANALYSIS", results[0].selectionReason?.uppercase())
+        assertEquals("RETRY THUMBNAIL", results[0].selectionReason?.uppercase())
     }
 
     @Test

@@ -65,9 +65,10 @@ object RecommendationEngine {
         val aLittleDifferent = getCategory("A_LITTLE_DIFFERENT", 4)
 
         // 0. Continue Watching: Item in progress (Deterministic, preserved)
-        val itemsOnly = repository.mediaItems.value.filter { 
+        val visibleList = try { repository.candidateEligibleMediaItems?.value ?: emptyList() } catch (_: Exception) { emptyList() }
+        val itemsOnly = visibleList.filter { 
             it.itemCount == null && 
-            repository.isItemVisibleInLibrary(it)
+            repository.isItemEligibleForCandidates(it)
         }
         val continueWatching = itemsOnly.filter { it.progress > 0f }.maxByOrNull { it.progress }
 
@@ -192,8 +193,9 @@ object RecommendationEngine {
         seed: Long = 42L
     ): List<Pair<MediaItem, Float>> {
         val session = repository.compareSelectionSession.value
+        val visibleList = try { repository.candidateEligibleMediaItems?.value ?: emptyList() } catch (_: Exception) { emptyList() }
         val poolOverride = inputItems ?: if (session.isActive) {
-            repository.mediaItems.value.filter { it.id in session.selectedIds }
+            visibleList.filter { it.id in session.selectedIds }
         } else null
 
         val core = repository.intelligenceCore
@@ -230,7 +232,7 @@ object RecommendationEngine {
         }
         
         // Final fallback (Safe degraded state - used in tests or when AI core fails or returns empty)
-        val basePool = (inputItems ?: repository.visibleMediaItems.value).filter { item ->
+        val basePool = (inputItems ?: repository.candidateEligibleMediaItems.value).filter { item ->
             if (item.isDeleted || item.itemCount != null) return@filter false
             val isVideo = item.mediaType.equals("VIDEO", ignoreCase = true) || item.mediaType.equals("MOVIE", ignoreCase = true) || item.mediaType.startsWith("VIDEO", ignoreCase = true) || item.mediaType.startsWith("MOVIE", ignoreCase = true)
             if (isVideo) {

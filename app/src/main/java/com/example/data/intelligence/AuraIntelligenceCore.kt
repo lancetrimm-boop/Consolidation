@@ -242,7 +242,8 @@ class AuraIntelligenceCore(
     }
 
     private suspend fun handleSort(request: IntelligenceRequest, collector: PerformanceCollector): List<IntelligenceCandidate> {
-        val allItems = request.poolOverride ?: repository.mediaItems.value
+        val visibleList = try { repository.candidateEligibleMediaItems?.value ?: emptyList() } catch (_: Exception) { emptyList() }
+        val allItems = request.poolOverride ?: visibleList
         val now = System.currentTimeMillis()
         val tasteDNA = request.tasteDNA ?: repository.tasteDNA.value
         val stats = request.stats ?: repository.intelligenceStats.value
@@ -450,14 +451,22 @@ class AuraIntelligenceCore(
         val visualVector = storedVector ?: run {
             val ctx = repository.applicationContext ?: return@run null
             val refItem = repository.getMediaItemById(refId) ?: return@run null
-            val uri = refItem.uriPath.ifEmpty { refItem.imageUrl }
-            if (uri.isEmpty()) return@run null
-            val bitmap = com.example.util.MediaThumbnailFetcher.getThumbnail(ctx, uri) ?: return@run null
+            val uriStr = refItem.uriPath.ifEmpty { refItem.imageUrl }
+            if (uriStr.isEmpty()) return@run null
+            val primaryBitmap = com.example.util.MediaThumbnailFetcher.getThumbnail(ctx, uriStr)
+            val bitmap = primaryBitmap ?: try {
+                val uri = android.net.Uri.parse(uriStr)
+                ctx.contentResolver.openInputStream(uri)?.use { stream ->
+                    android.graphics.BitmapFactory.decodeStream(stream)
+                }
+            } catch (e: Exception) {
+                null
+            }
+            if (bitmap == null) return@run null
             val scaled = if (bitmap.width > 512 || bitmap.height > 512) android.graphics.Bitmap.createScaledBitmap(bitmap, 512, 512, true) else bitmap
             val result = if (provider != null && provider.isReady()) {
                 provider.generateEmbedding(refId, SemanticInput.ExplicitBitmap(scaled), "similar_query")
             } else null
-            if (scaled !== bitmap) scaled.recycle()
             if (result is EmbeddingResult.Success) result.representation.vector else null
         }
 
@@ -476,8 +485,9 @@ class AuraIntelligenceCore(
     }
 
     private suspend fun handleDiscover(request: IntelligenceRequest, collector: PerformanceCollector): List<IntelligenceCandidate> {
-        val allItems = request.poolOverride ?: repository.mediaItems.value
-        val itemsOnly = allItems.filter { isItemVisibleInLibrary(it, request) && it.itemCount == null }
+        val visibleList = try { repository.candidateEligibleMediaItems?.value ?: emptyList() } catch (_: Exception) { emptyList() }
+        val allItems = request.poolOverride ?: visibleList
+        val itemsOnly = allItems.filter { repository.isItemEligibleForCandidates(it) && it.itemCount == null }
         val stats = request.stats ?: repository.intelligenceStats.value
         val dna = request.tasteDNA ?: repository.tasteDNA.value
         val profile = request.profile ?: repository.preferenceProfile.value
@@ -544,7 +554,7 @@ class AuraIntelligenceCore(
         val isTextSearch = !request.query.isNullOrBlank()
         val isPureVisual = !isTextSearch && (request.visualVector != null || isSimilarMode)
         val precisionThreshold = when {
-            isSimilarMode -> 0.45f
+            isSimilarMode -> 0.20f
             isTextSearch -> config.minTextSemanticSimilarity
             isPureVisual -> config.minSemanticSimilarity
             else -> 0.0f
@@ -634,7 +644,11 @@ class AuraIntelligenceCore(
 
     private fun seal(candidates: List<IntelligenceCandidate>, request: IntelligenceRequest): List<IntelligenceCandidate> {
         return candidates.filter { 
-            val visible = isItemVisibleInLibrary(it.item, request)
+            val visible = if (request.mode == IntelligenceMode.DISCOVER) {
+                repository.isItemEligibleForCandidates(it.item)
+            } else {
+                isItemVisibleInLibrary(it.item, request)
+            }
             if (!visible) {
                 DecisionTraceCollector.logEvent(request.requestId, com.example.ui.models.TraceEventType.ELIGIBILITY_CHECK, detail = "Dropped at Seal", metadata = mapOf("itemId" to it.item.id))
             }

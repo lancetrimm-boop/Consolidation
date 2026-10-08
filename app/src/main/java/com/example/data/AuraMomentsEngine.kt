@@ -73,7 +73,7 @@ object AuraMomentsEngine {
         
         val response = core?.processRequest(request)
         val selectionMs = System.currentTimeMillis() - selectionStart
-        if (response == null || !response.isSuccess) return generateSlideshow(repository.mediaItems.value, limit)
+        if (response == null || !response.isSuccess) return generateSlideshow(repository.candidateEligibleMediaItems.value, limit)
 
         val candidates = response.candidates
         

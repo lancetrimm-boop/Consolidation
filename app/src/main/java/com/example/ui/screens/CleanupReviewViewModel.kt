@@ -38,7 +38,8 @@ enum class ReviewSort {
 class CleanupReviewViewModel(
     private val repository: MediaRepository,
     private val entitlementRepository: com.example.data.entitlement.EntitlementRepository,
-    private val backgroundDispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default
+    private val backgroundDispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default,
+    private val diagnosticMediaStore: com.example.data.mediastore.DiagnosticMediaStore = repository.diagnosticMediaStore ?: com.example.data.mediastore.DefaultDiagnosticMediaStore()
 ) : ViewModel() {
 
     val deleteManager = repository.safeDeleteManager
@@ -50,11 +51,11 @@ class CleanupReviewViewModel(
         viewModelScope.launch {
             kotlinx.coroutines.flow.combine(
                 repository.databaseState,
-                repository.mediaItems,
+                diagnosticMediaStore.ineligibleItems,
                 entitlementRepository.proState
-            ) { dbState, items, proState ->
-                Triple(dbState, items, proState)
-            }.collect { (dbState, _, _) ->
+            ) { dbState, _, proState ->
+                Pair(dbState, proState)
+            }.collect { (dbState, _) ->
                 if (dbState != com.example.data.DatabaseState.READY) {
                     _uiState.update { it.copy(isLoading = true, isLocked = false) }
                 } else {
@@ -93,70 +94,26 @@ class CleanupReviewViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, isLocked = false) }
             try {
-                val allItems = repository.mediaItems.value
+                val ineligibleEntries = diagnosticMediaStore.ineligibleItems.value
                 val tasteDNA = repository.tasteDNA.value
                 val stats = repository.intelligenceStats.value
-                
-                // Perform heavy calculation in background
+
                 kotlinx.coroutines.withContext(backgroundDispatcher) {
-                    // 1. Generate Keep Scores
-                    val allIds = allItems.map { it.id }
-                    val skipCounts = repository.getSkipCounts(allIds)
-                    val hashFrequenciesList = repository.getContentHashFrequencies()
-                    val hashFrequenciesMap = hashFrequenciesList.associate { it.contentHash to it.count }
-
-                    val keepScoreResults = allItems.map { item ->
-                        val evidence = ExplorationEngine.calculateEvidence(item, tasteDNA, stats)
-                        val estimatedWatchDuration = (item.progress * item.durationMs) / 1000f
-                        
-                        val frequency = hashFrequenciesMap[item.contentHash ?: ""] ?: 1
-                        val rarityScore = 1.0f / frequency
-
-                        KeepScoreEngine.calculateScore(
-                            KeepScoreInput(
-                                mediaId = item.id,
-                                fileSize = item.sizeBytes,
-                                dateAdded = item.dateAdded,
-                                exposureCount = item.exposureCount,
-                                lastExposedTimestamp = item.lastExposedTimestamp,
-                                viewCount = item.viewCount,
-                                playCount = item.viewCount,
-                                averageWatchDuration = estimatedWatchDuration,
-                                completionPercentage = item.progress,
-                                skipCount = skipCounts[item.id] ?: 0,
-                                rating = item.rating,
-                                isFavorite = item.isFavorite,
-                                tasteAlignmentScore = evidence.exploitationScore,
-                                rarityScore = rarityScore,
-                                contentHash = item.contentHash
-                            )
+                    val recommendations = ineligibleEntries.map { entry ->
+                        val reasonText = entry.reasons.joinToString { it.name }
+                        CleanupRecommendation(
+                            mediaId = entry.id,
+                            keepScore = 0.0f,
+                            confidenceScore = 1.0f,
+                            category = CleanupCategory.UNPLAYABLE_FILES,
+                            reasons = listOf(CleanupReason.UNPLAYABLE_MEDIA),
+                            storageSize = entry.sizeBytes,
+                            exposureCount = 0,
+                            createdTimestamp = entry.detectedAtEpochMs,
+                            explanation = "Ineligible: $reasonText"
                         )
                     }
 
-                    // 2. Generate Recommendations
-                    val metadataMap = allItems.associate { item ->
-                        item.id to CleanupItemMetadata(
-                            mediaId = item.id,
-                            title = item.title,
-                            sizeBytes = item.sizeBytes,
-                            exposureCount = item.exposureCount,
-                            viewCount = item.viewCount,
-                            mediaType = item.mediaType,
-                            contentHash = item.contentHash,
-                            isFavorite = item.isFavorite,
-                            width = item.width,
-                            height = item.height,
-                            durationMs = item.durationMs,
-                            dateAdded = item.dateAdded
-                        )
-                    }
-
-                    val recommendations = CleanupRecommendationEngine.generateRecommendations(
-                        keepScoreResults,
-                        metadataMap
-                    )
-
-                    // 3. Calculate Category Stats
                     val statsMap = CleanupCategory.entries.associateWith { cat ->
                         val catRecs = recommendations.filter { it.category == cat }
                         CategoryStat(
@@ -170,7 +127,6 @@ class CleanupReviewViewModel(
                         val newSelectedIds = state.selectedIds.intersect(recommendations.map { it.mediaId }.toSet())
                         val newState = state.copy(
                             recommendations = recommendations,
-                            mediaItems = allItems.associateBy { it.id },
                             categoryStats = statsMap,
                             isLoading = false,
                             selectedIds = newSelectedIds

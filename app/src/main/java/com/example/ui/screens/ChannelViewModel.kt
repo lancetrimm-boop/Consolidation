@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.core.mediamodel.toMediaItem
 import com.example.data.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,10 +46,20 @@ class ChannelViewModel(
 
     val slideshowDelaySeconds: StateFlow<Int> = repository.slideshowDelaySeconds
 
+    private val availableMedia: List<MediaItem>
+        get() {
+            val eligible = repository.presentationMediaStore.eligibleMedia.value
+            return if (eligible.isNotEmpty()) {
+                eligible.map { it.toMediaItem() }
+            } else {
+                try { repository.candidateEligibleMediaItems.value } catch (_: Exception) { try { repository.mediaItems.value } catch (_: Exception) { emptyList() } }
+            }
+        }
+
     init {
-        // Observe media items changes and refresh channel previews
+        // Observe eligibleMedia changes and refresh channel previews
         viewModelScope.launch {
-            repository.mediaItems.collect {
+            repository.presentationMediaStore.eligibleMedia.collect {
                 loadChannelPreviews()
             }
         }
@@ -57,7 +68,7 @@ class ChannelViewModel(
 
     fun loadChannelPreviews() {
         viewModelScope.launch(repository.dispatcher) {
-            val available = repository.mediaItems.value.filter { repository.isItemVisibleInLibrary(it) }
+            val available = availableMedia
             val filter = _selectedFilterType.value
             val context = ChannelProgrammingContext(
                 availableMedia = available,
@@ -71,8 +82,10 @@ class ChannelViewModel(
 
             val usedPreviewIds = mutableSetOf<String>()
 
-            val states = allChannels.map { channel ->
+            val states = allChannels.mapNotNull { channel ->
                 val programmed = programmer.programChannel(channel, context, limit = 20)
+                if (programmed.isEmpty()) return@mapNotNull null
+
                 val candidate = if (channel.channelKind == ChannelKind.SEARCH_SEEDED && channel.referenceMediaIds.isNotEmpty()) {
                     val firstRefId = channel.referenceMediaIds.first()
                     programmed.find { it.id == firstRefId }
@@ -88,6 +101,8 @@ class ChannelViewModel(
                 val adjustedFullItems = if (candidate != null) {
                     listOf(candidate) + programmed.filter { it.id != candidate.id }
                 } else emptyList()
+
+                if (adjustedFullItems.isEmpty()) return@mapNotNull null
 
                 ChannelPreviewState(
                     channel = channel,
@@ -134,7 +149,7 @@ class ChannelViewModel(
         onComplete: (List<MediaItem>) -> Unit
     ) {
         viewModelScope.launch {
-            val available = repository.mediaItems.value.filter { repository.isItemVisibleInLibrary(it) }
+            val available = availableMedia
             val db = repository.getDatabase()
             val feedback = db?.programmingFeedbackDao()?.getAllFeedback() ?: emptyList()
             val skipEvents = db?.aiSkipDao()?.observeAllEvents()?.firstOrNull() ?: emptyList()
@@ -192,7 +207,7 @@ class ChannelViewModel(
                 }
                 refreshEpoch++
 
-                val available = repository.mediaItems.value.filter { repository.isItemVisibleInLibrary(it) }
+                val available = availableMedia
                 val filter = _selectedFilterType.value
                 val context = ChannelProgrammingContext(
                     availableMedia = available,
@@ -206,8 +221,10 @@ class ChannelViewModel(
 
                 val usedPreviewIds = mutableSetOf<String>()
 
-                val states = allChannels.map { channel ->
+                val states = allChannels.mapNotNull { channel ->
                     val programmed = programmer.programChannel(channel, context, limit = 20)
+                    if (programmed.isEmpty()) return@mapNotNull null
+
                     val candidate = if (channel.channelKind == ChannelKind.SEARCH_SEEDED && channel.referenceMediaIds.isNotEmpty()) {
                         val firstRefId = channel.referenceMediaIds.first()
                         programmed.find { it.id == firstRefId }
@@ -223,6 +240,8 @@ class ChannelViewModel(
                     val adjustedFullItems = if (candidate != null) {
                         listOf(candidate) + programmed.filter { it.id != candidate.id }
                     } else emptyList()
+
+                    if (adjustedFullItems.isEmpty()) return@mapNotNull null
 
                     ChannelPreviewState(
                         channel = channel,

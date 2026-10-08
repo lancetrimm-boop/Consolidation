@@ -98,6 +98,9 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     private var database: AuraDatabase? = null
     fun getDatabase(): AuraDatabase? = database
 
+    val presentationMediaStore: com.example.data.mediastore.PresentationMediaStore = com.example.data.mediastore.DefaultPresentationMediaStore()
+    val diagnosticMediaStore: com.example.data.mediastore.DiagnosticMediaStore = com.example.data.mediastore.DefaultDiagnosticMediaStore()
+
     @Volatile var intelligenceRepository: IntelligenceRepository? = null; private set
     @Volatile var interactionRepository: InteractionRepository? = null; private set
     @Volatile var entitlementRepository: EntitlementRepository? = null; private set
@@ -133,9 +136,48 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         hybridSearchEngine = DefaultHybridSearchEngine(core)
     }
 
-    private val _mediaItems = MutableStateFlow<List<MediaItem>>(emptyList()); val mediaItems = _mediaItems.asStateFlow()
-    val visibleMediaItems: StateFlow<List<MediaItem>> = _mediaItems.map { list -> list.filter { isItemVisibleInLibrary(it) } }.stateIn(scope, SharingStarted.Eagerly, emptyList())
-    val mediaItemsMap = _mediaItems.map { list -> list.associateBy { it.id } }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+    private val _mediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
+    val mediaItems = _mediaItems.asStateFlow()
+
+    private val _visibleMediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
+    val visibleMediaItems: StateFlow<List<MediaItem>> = _visibleMediaItems.asStateFlow()
+
+    private val _candidateEligibleMediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
+    val candidateEligibleMediaItems: StateFlow<List<MediaItem>> = _candidateEligibleMediaItems.asStateFlow()
+
+    private val _mediaItemsMap = MutableStateFlow<Map<String, MediaItem>>(emptyMap())
+    val mediaItemsMap: StateFlow<Map<String, MediaItem>> = _mediaItemsMap.asStateFlow()
+
+    private fun setMediaItemsState(items: List<MediaItem>) {
+        _mediaItems.value = items
+        val visible = items.filter { isItemVisibleInLibrary(it) }
+        _visibleMediaItems.value = visible
+        _candidateEligibleMediaItems.value = items.filter { isItemEligibleForCandidates(it) }
+        _mediaItemsMap.value = visible.associateBy { it.id }
+    }
+
+    private fun updateMediaItemsState(transform: (List<MediaItem>) -> List<MediaItem>) {
+        _mediaItems.update { current ->
+            val updated = transform(current)
+            val visible = updated.filter { isItemVisibleInLibrary(it) }
+            _visibleMediaItems.value = visible
+            _candidateEligibleMediaItems.value = updated.filter { isItemEligibleForCandidates(it) }
+            _mediaItemsMap.value = visible.associateBy { it.id }
+            updated
+        }
+    }
+    
+    fun isItemEligibleForCandidates(item: MediaItem): Boolean {
+        if (item.compatibilityStatus == CompatibilityStatus.ANALYSIS_PENDING || 
+            item.compatibilityStatus == CompatibilityStatus.UNTESTED) {
+            return false
+        }
+        return when (item.compatibilityStatus) {
+            CompatibilityStatus.PLAYABLE,
+            CompatibilityStatus.PLAYABLE_SOFTWARE_DECODE -> true
+            else -> false
+        }
+    }
     private val _searchSeededChannels = MutableStateFlow<List<Channel>>(emptyList())
     val searchSeededChannels: StateFlow<List<Channel>> = _searchSeededChannels.asStateFlow()
 
@@ -298,7 +340,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         standardSort: StandardSortOption = _selectedStandardSort.value,
         intelligentSort: IntelligentSortOption = _selectedIntelligentSort.value,
         sessionSeed: Long = _librarySessionSeed.value,
-        inputItems: List<MediaItem> = _mediaItems.value,
+        inputItems: List<MediaItem> = candidateEligibleMediaItems.value,
         searchRequest: SearchRequest = _librarySearchRequest.value,
         tasteDNA: TasteDNA = _tasteDNA.value,
         profile: TasteDNA.PreferenceProfile = _preferenceProfile.value,
@@ -368,7 +410,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
     @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val latestSortedFullItemsFlow: StateFlow<List<MediaItem>> = combine(
-        mediaItems, _tasteDNA, _preferenceProfile, _libraryFilter, _activeSortCategory,
+        visibleMediaItems, _tasteDNA, _preferenceProfile, _libraryFilter, _activeSortCategory,
         _selectedStandardSort, _selectedIntelligentSort,
         _librarySearchRequest.debounce { if (it is SearchRequest.Visual || it is SearchRequest.MultiVisual || it is SearchRequest.Compound) 0L else 300L }.distinctUntilChanged(),
         _librarySessionSeed, _discoveryPolicy, _userIntent, _intelligenceStats, _creatorProfiles, _comparisonCounts, _aiState
@@ -390,7 +432,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             creatorProfiles = creators,
             comparisonCounts = counts
         )
-    }.stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
     
     val latestAiSortRecommendation = combine(
         latestSortedFullItemsFlow,
@@ -402,19 +444,19 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     }
     .distinctUntilChanged()
     .flowOn(dispatcher)
-    .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
+    .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     val latestLibraryPresentation = combine(latestSortedFullItemsFlow, _libraryPageOffset, _libraryFilter, _activeSortCategory, _selectedStandardSort, _selectedIntelligentSort, _librarySearchRequest, _searchErrorMessage, _activeVisualReferences, _aiState, _databaseState, _gridDensity, _autoScrollSpeed, _importProgress, _scanProgress, latestLibraryProvenance) { args ->
         val items = args[0] as List<MediaItem>; val offset = args[1] as Int; val filter = args[2] as String; val category = args[3] as SortCategory; val std = args[4] as StandardSortOption; val intel = args[5] as IntelligentSortOption; val search = args[6] as SearchRequest; val err = args[7] as String?; val visual = args[8] as List<MediaItem>; val ai = args[9] as AIState; val db = args[10] as DatabaseState; val grid = args[11] as Float; val auto = args[12] as AutoScrollSpeed; val import = args[13] as ImportProgressState; val scan = args[14] as ScanProgressState; val prov = args[15] as Map<String, DecisionProvenance>
         val end = (offset + LIBRARY_PAGE_SIZE).coerceAtMost(items.size)
         val pagedItems = items.take(end)
         LibraryPresentationState(pagedItems, filter, category, std, intel, search, err, visual, ai, db, false, auto, grid, false, emptySet(), import, scan, prov)
-    }.stateIn(scope, SharingStarted.WhileSubscribed(5000), LibraryPresentationState(emptyList()))
+    }.stateIn(scope, SharingStarted.Eagerly, LibraryPresentationState(emptyList()))
 
     val latestDiscoverPresentation = combine(_discoverSnapshot, _databaseState, _aiState, latestDiscoverProvenance, _tasteDNA, _preferenceProfile, _discoveryPolicy) { args ->
         val snap = args[0] as DiscoverSnapshot?; val db = args[1] as DatabaseState; val ai = args[2] as AIState; val prov = args[3] as Map<String, DecisionProvenance>; val dna = args[4] as TasteDNA; val profile = args[5] as TasteDNA.PreferenceProfile; val policy = args[6] as DiscoveryPolicy
-        DiscoverPresentationState(snap?.obsessions ?: emptyList(), ConfidenceEngine.calculateDiscoveryState(_mediaItems.value, _intelligenceStats.value), ai == AIState.BOOTSTRAP, null, null, dna, profile, policy, prov)
-    }.stateIn(scope, SharingStarted.WhileSubscribed(5000), DiscoverPresentationState())
+        DiscoverPresentationState(snap?.obsessions ?: emptyList(), ConfidenceEngine.calculateDiscoveryState(candidateEligibleMediaItems.value, _intelligenceStats.value), ai == AIState.BOOTSTRAP, null, null, dna, profile, policy, prov)
+    }.stateIn(scope, SharingStarted.Eagerly, DiscoverPresentationState())
 
     fun initDatabase(context: Context) {
         applicationContext = context.applicationContext
@@ -494,7 +536,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                                 CompatibilityStatus.REPLACED
                             )
                         }
-                        _mediaItems.value = items
+                        setMediaItemsState(items)
                         _activePlaylist.update { p -> if (p == null) null else { val list = p.items.map { s -> items.find { it.id == s.id } ?: s }; val idx = p.authoritativeMediaId?.let { id -> list.indexOfFirst { it.id == id }.let { if (it != -1) it else p.currentIndex.coerceAtMost(list.size-1) } } ?: p.currentIndex.coerceAtMost(list.size-1); p.copy(items = list, currentIndex = idx, authoritativeMediaId = list.getOrNull(idx)?.id) } }
                         if (items.filter { it.itemCount == null }.size >= 2) refreshPairwiseCandidatePoolAndSelectNext(false)
                     }
@@ -639,7 +681,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     fun getMediaItemById(id: String) = _mediaItems.value.find { it.id == id } ?: _activePlaylist.value?.items?.find { it.id == id }
     
     fun logInteraction(item: MediaItem) {
-        val now = System.currentTimeMillis(); _mediaItems.update { list -> list.map { if (it.id == item.id) it.copy(viewCount = it.viewCount + 1, lastViewedTimestamp = now) else it } }
+        val now = System.currentTimeMillis(); updateMediaItemsState { list -> list.map { if (it.id == item.id) it.copy(viewCount = it.viewCount + 1, lastViewedTimestamp = now) else it } }
         scope.launch { database?.mediaDao()?.let { dao -> dao.getMediaById(item.id)?.let { dao.update(it.copy(playCount = it.playCount + 1, lastViewedTimestamp = now)) } } }
         if (_tasteDNA.value.isFineTuningEnabled) { var dna = _tasteDNA.value; PersonalizationTraitMapper.getEffectiveTraitAdjustments(item).forEach { (dim, mult) -> dna = dna.updateLearnedDimension(dim, mult * 0.005, 0.20) }; if (dna != _tasteDNA.value) updateTasteDNA(dna, false, "View") }
         learnPreferenceSignals(item, isSuccess = true)
@@ -647,7 +689,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     
     fun recordMediaCompletion(id: String) {
         getMediaItemById(id)?.let { item ->
-            _mediaItems.update { list -> list.map { if (it.id == id) it.copy(progress = 1.0f) else it } }
+            updateMediaItemsState { list -> list.map { if (it.id == id) it.copy(progress = 1.0f) else it } }
             scope.launch { 
                 database?.mediaDao()?.let { dao -> dao.getMediaById(id)?.let { dao.update(it.copy(progress = 1.0f)) } }
                 database?.savedMediaDao()?.deleteMedia(id)
@@ -699,7 +741,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         scope.launch(dispatcher) {
             val session = _compareSelectionSession.value
             val mediaTypeFilter = _compareMediaType.value
-            val rawItems = if (session.isActive) _mediaItems.value.filter { it.id in session.selectedIds } else _mediaItems.value
+            val rawItems = if (session.isActive) candidateEligibleMediaItems.value.filter { it.id in session.selectedIds } else candidateEligibleMediaItems.value
             val items = rawItems.filter { item ->
                 val isVideo = item.mediaType.equals("VIDEO", ignoreCase = true) || item.mediaType.equals("MOVIE", ignoreCase = true) || item.mediaType.startsWith("VIDEO", ignoreCase = true) || item.mediaType.startsWith("MOVIE", ignoreCase = true)
                 when (mediaTypeFilter) {
@@ -920,7 +962,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     // Channel Playback Replenishment
                     val selectedChannel = current.channel
                     val existingIds = current.items.map { it.id }.toSet()
-                    val candidatePool = _mediaItems.value.filter { !existingIds.contains(it.id) }
+                    val candidatePool = candidateEligibleMediaItems.value.filter { !existingIds.contains(it.id) }
                     val channelContext = ChannelProgrammingContext(
                         availableMedia = candidatePool,
                         filterType = current.channelFilterType ?: "ALL",
@@ -982,11 +1024,11 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     fun recordExposures(ids: List<String>) { if (ids.isEmpty()) return; synchronized(exposureBuffer) { exposureBuffer.addAll(ids) }; if (exposureFlushJob?.isActive != true) exposureFlushJob = scope.launch { delay(5000); flushExposures() } }
     private suspend fun flushExposures() { val ids = synchronized(exposureBuffer) { val copy = exposureBuffer.toList(); exposureBuffer.clear(); copy }; if (ids.isEmpty()) return; val now = System.currentTimeMillis(); database?.mediaDao()?.let { dao -> val entities = ids.mapNotNull { id -> dao.getMediaById(id)?.let { it.copy(exposureCount = it.exposureCount + 1, lastExposedTimestamp = now) } }; if (entities.isNotEmpty()) dao.updateAll(entities) } }
     
-    fun updateRating(id: String, rating: Float) { scope.launch { _mediaItems.update { items -> items.map { if (it.id == id) it.copy(rating = rating) else it } }; database?.mediaDao()?.getMediaById(id)?.let { database?.mediaDao()?.update(it.copy(rating = rating)) } } }
+    fun updateRating(id: String, rating: Float) { scope.launch { updateMediaItemsState { items -> items.map { if (it.id == id) it.copy(rating = rating) else it } }; database?.mediaDao()?.getMediaById(id)?.let { database?.mediaDao()?.update(it.copy(rating = rating)) } } }
     fun setFavorite(id: String, isFavorite: Boolean) {
         val item = getMediaItemById(id) ?: return
         val updated = item.copy(isFavorite = isFavorite)
-        _mediaItems.update { list -> list.map { if (it.id == id) updated else it } }
+        updateMediaItemsState { list -> list.map { if (it.id == id) updated else it } }
         
         _activePlaylist.update { playlist ->
             playlist?.copy(
@@ -1147,7 +1189,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
     private fun updateItemCompatibilityStatus(itemId: String, status: CompatibilityStatus) {
         scope.launch {
-            _mediaItems.update { list ->
+            updateMediaItemsState { list ->
                 list.map { if (it.id == itemId) it.copy(compatibilityStatus = status) else it }
             }
             val entity = database?.mediaDao()?.getMediaById(itemId)
@@ -1232,7 +1274,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     }
 
     fun deleteMediaItem(id: String) {
-        _mediaItems.update { it.filterNot { it.id == id } }
+        updateMediaItemsState { it.filterNot { it.id == id } }
         scope.launch { database?.mediaDao()?.deleteById(id); deleteSemanticDataForMedia(id) }
         _activePlaylist.update { p -> if (p == null) null else {
             val list = p.items.filterNot { it.id == id }
@@ -1273,7 +1315,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     }
 
     suspend fun getFilteredAndSortedMedia(filterType: String, sortCategory: SortCategory, standardSort: StandardSortOption, intelligentSort: IntelligentSortOption, 
-        sessionSeed: Long = 42L, inputItems: List<MediaItem> = _mediaItems.value, tasteDNA: TasteDNA = _tasteDNA.value, profile: TasteDNA.PreferenceProfile = _preferenceProfile.value,
+        sessionSeed: Long = 42L, inputItems: List<MediaItem> = candidateEligibleMediaItems.value, tasteDNA: TasteDNA = _tasteDNA.value, profile: TasteDNA.PreferenceProfile = _preferenceProfile.value,
         policy: DiscoveryPolicy = _discoveryPolicy.value, intent: UserIntent = _userIntent.value, stats: IntelligenceStats = _intelligenceStats.value, creatorProfiles: Map<String, CreatorProfile> = _creatorProfiles.value,
         comparisonCounts: Map<String, Int> = _comparisonCounts.value
     ): List<MediaItem> {
@@ -1317,40 +1359,23 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
     fun isItemVisibleInLibrary(item: MediaItem): Boolean {
         if (item.isDeleted) return false
-
-        val standardSupportedVideoCodecs = setOf(
-            "video/avc", "video/hevc", "video/mp4v-es",
-            "video/x-vnd.on2.vp8", "video/x-vnd.on2.vp9",
-            "video/av01", "video/3gpp"
-        )
-        val isStandardCodec = standardSupportedVideoCodecs.any { 
-            item.videoCodec.equals(it, ignoreCase = true) || item.videoCodec.startsWith(it, ignoreCase = true) 
-        } || (item.videoCodec.isBlank() && item.containerFormat !in setOf("AVI", "FLV", "WMV"))
-
-        val isAvi = item.containerFormat.equals("AVI", true) || item.uriPath.lowercase().endsWith(".avi")
-
-        val effectiveStatus = if (!isAvi && isStandardCodec && item.compatibilityStatus in setOf(
-                CompatibilityStatus.UNSUPPORTED,
-                CompatibilityStatus.UNTESTED,
-                CompatibilityStatus.ANALYSIS_PENDING,
-                CompatibilityStatus.ANALYSIS_FAILED
-            )) {
-            CompatibilityStatus.PLAYABLE_SOFTWARE_DECODE
-        } else {
-            item.compatibilityStatus
-        }
-
-        val visibleStatuses = listOf(
+        return when (item.compatibilityStatus) {
             CompatibilityStatus.PLAYABLE,
             CompatibilityStatus.PLAYABLE_SOFTWARE_DECODE,
-            CompatibilityStatus.THUMBNAIL_FAILED
-        )
+            CompatibilityStatus.THUMBNAIL_FAILED -> true
 
-        val visible = effectiveStatus in visibleStatuses
-        if (!visible) {
-            Log.d("VisibilityGate", "Library HIDE id=${item.id} status=${item.compatibilityStatus} effective=$effectiveStatus")
+            CompatibilityStatus.ANALYSIS_PENDING,
+            CompatibilityStatus.ANALYSIS_IN_PROGRESS,
+            CompatibilityStatus.ANALYSIS_FAILED,
+            CompatibilityStatus.UNTESTED,
+            CompatibilityStatus.UNSUPPORTED,
+            CompatibilityStatus.CORRUPT,
+            CompatibilityStatus.UNREADABLE,
+            CompatibilityStatus.PLAYABLE_AFTER_CONVERSION,
+            CompatibilityStatus.NEEDS_TRANSCODE,
+            CompatibilityStatus.DELETED,
+            CompatibilityStatus.REPLACED -> false
         }
-        return visible
     }
 
     private fun performLegacySearch(items: List<MediaItem>, query: String): List<MediaItem> {
@@ -1358,7 +1383,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         return items.filter { it.title.lowercase().contains(q) || it.genre.lowercase().contains(q) || it.moodTags.any { t -> t.lowercase().contains(q) } || it.year.toString().contains(q) }
     }
 
-    private fun hasStoragePermission(context: Context): Boolean {
+    fun hasStoragePermission(context: Context): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
@@ -1473,7 +1498,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         val pending = database?.mediaDao()?.getPendingAnalysis() ?: emptyList() 
         pending.forEach { entity -> 
             val report = AuraMediaCompatibilityEngine.analyzeMedia(context, entity.uriPath, entity.mediaType) 
-            _mediaItems.update { list ->
+            updateMediaItemsState { list ->
                 list.map { if (it.id == entity.id) it.copy(compatibilityStatus = report.status, containerFormat = report.containerFormat, videoCodec = report.videoCodec, audioCodec = report.audioCodec) else it }
             }
             database?.mediaDao()?.update(entity.copy(compatibilityStatus = report.status.name, containerFormat = report.containerFormat)) 
@@ -1484,7 +1509,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         database?.mediaDao()?.getAllMediaSync()?.forEach { entity -> 
             if (entity.compatibilityStatus == "ANALYSIS_PENDING" || entity.compatibilityStatus == "THUMBNAIL_FAILED") { 
                 val report = AuraMediaCompatibilityEngine.analyzeMedia(context, entity.uriPath, entity.mediaType) 
-                _mediaItems.update { list ->
+                updateMediaItemsState { list ->
                     list.map { if (it.id == entity.id) it.copy(compatibilityStatus = report.status, containerFormat = report.containerFormat, videoCodec = report.videoCodec, audioCodec = report.audioCodec) else it }
                 }
                 database?.mediaDao()?.update(entity.copy(compatibilityStatus = report.status.name)) 
@@ -1501,32 +1526,26 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     
     private fun isEphemeralReason(reason: String?): Boolean = reason != null && (reason in setOf("Surprise!", "For You", "Hidden Gem", "Best Match", "Personalized", "New Discovery", "Blast from the Past", "Your Favorite") || Regex("""\d+% Match""").matches(reason))
     
-    suspend fun convertMediaItem(context: Context, itemId: String, deleteOriginalAfter: Boolean = false, onProgress: ((Int) -> Unit)? = null): ConversionResult { val item = getMediaItemById(itemId) ?: return ConversionResult(false, null, null, "Not found"); return AuraMediaConverter.convertToUniversalFormat(context, item, deleteOriginalAfter, onProgress).also { if (it.isSuccess && it.updatedItem != null) { val updated = it.updatedItem!!; _mediaItems.update { list -> list.map { if (it.id == itemId) updated else it } }; database?.mediaDao()?.update(updated.toEntity()) } } }
+    suspend fun convertMediaItem(context: Context, itemId: String, deleteOriginalAfter: Boolean = false, onProgress: ((Int) -> Unit)? = null): ConversionResult { val item = getMediaItemById(itemId) ?: return ConversionResult(false, null, null, "Not found"); return AuraMediaConverter.convertToUniversalFormat(context, item, deleteOriginalAfter, onProgress).also { if (it.isSuccess && it.updatedItem != null) { val updated = it.updatedItem!!; updateMediaItemsState { list -> list.map { if (it.id == itemId) updated else it } }; database?.mediaDao()?.update(updated.toEntity()) } } }
     
     suspend fun getSimilarMedia(item: MediaItem, requestId: String = "NONE"): IntelligenceResponse {
         _isForegroundVisualQueryActive.value = true
         return try {
-            val seedIsVideo = item.mediaType.equals("VIDEO", ignoreCase = true) ||
-                    item.mediaType.equals("MOVIE", ignoreCase = true) ||
-                    item.mediaType.startsWith("VIDEO", ignoreCase = true) ||
-                    item.mediaType.startsWith("MOVIE", ignoreCase = true)
-            val filterType = if (seedIsVideo) "VIDEO" else "PHOTO"
             val req = IntelligenceRequest(
                 mode = IntelligenceMode.SIMILAR,
                 referenceItemId = item.id,
                 requestId = requestId,
-                filterType = filterType,
+                filterType = "ALL",
                 limit = 50
             )
-            val response = intelligenceCore?.processRequest(req) ?: IntelligenceResponse(requestId, IntelligenceMode.SIMILAR, emptyList(), latencyMs = 0, isSuccess = false, errorMessage = "Intelligence Core not initialized")
-            val filtered = response.candidates.filter { candidate ->
-                val candIsVideo = candidate.item.mediaType.equals("VIDEO", ignoreCase = true) ||
-                        candidate.item.mediaType.equals("MOVIE", ignoreCase = true) ||
-                        candidate.item.mediaType.startsWith("VIDEO", ignoreCase = true) ||
-                        candidate.item.mediaType.startsWith("MOVIE", ignoreCase = true)
-                candIsVideo == seedIsVideo
-            }
-            response.copy(candidates = filtered)
+            intelligenceCore?.processRequest(req) ?: IntelligenceResponse(
+                requestId = requestId,
+                mode = IntelligenceMode.SIMILAR,
+                candidates = emptyList(),
+                latencyMs = 0,
+                isSuccess = false,
+                errorMessage = "Intelligence Core not initialized"
+            )
         } finally {
             _isForegroundVisualQueryActive.value = false
         }
@@ -1564,7 +1583,6 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 Log.e("MediaRepository", "searchByImage error", e)
             } finally {
                 _isForegroundVisualQueryActive.value = false
-                if (scaled !== bitmap) scaled.recycle()
             }
         }
     }
@@ -1576,7 +1594,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     val favoritesSections: StateFlow<List<IntelligentSection>> = visibleMediaItems.map { items ->
         val favorites = items.filter { it.isFavorite }
         listOf(IntelligentSection("Favorites", "Everything you've liked and rated highly.", favorites))
-    }.stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     fun addMediaEntity(entity: MediaEntity) { scope.launch { database?.mediaDao()?.insert(entity) } }
     suspend fun getEngagementMetrics(): EngagementMetrics = getEngagementMetricsInternal()
@@ -1676,7 +1694,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             _databaseState.value = DatabaseState.INITIALIZING
             database?.close(); database = null
             context.getDatabasePath("aura_intelligence.db").let { if (it.exists()) it.renameTo(context.getDatabasePath("aura_quarantine_${System.currentTimeMillis()}.db")) }
-            _mediaItems.value = emptyList()
+            setMediaItemsState(emptyList())
             initDatabase(context)
         }
     }
@@ -1684,7 +1702,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     fun setAutoScrollSpeed(speed: AutoScrollSpeed) { _autoScrollSpeed.value = speed }
     fun setGridDensity(density: Float) { _gridDensity.value = density }
     fun setMediaItemsForTesting(items: List<MediaItem>) { 
-        _mediaItems.value = items 
+        setMediaItemsState(items) 
         _databaseState.value = DatabaseState.READY
     }
     fun setDatabaseForTesting(db: AuraDatabase) { 
@@ -1705,7 +1723,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
     }
     fun resetTestingState() { 
-        _mediaItems.value = emptyList()
+        setMediaItemsState(emptyList())
         _databaseState.value = DatabaseState.NOT_INITIALIZED
         pendingPlaybackErrors.clear()
         initJob?.cancel()
@@ -1829,7 +1847,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         if (toDelete.isNotEmpty()) {
             db.mediaDao().deleteByIds(toDelete)
             toDelete.forEach { deleteSemanticDataForMedia(it) }
-            _mediaItems.update { current -> current.filterNot { it.id in toDelete } }
+            updateMediaItemsState { current -> current.filterNot { it.id in toDelete } }
             Log.d("AURA_SCAN_RUNTIME", "[REPO] reconcileDeletions complete. Purged ${toDelete.size} items via batch delete.")
         }
         
@@ -1858,7 +1876,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     private inner class ProductionLexicalRetriever : LexicalCandidateRetriever { 
         override suspend fun retrieveKeywordCandidates(query: String, topK: Int): List<RankedChannelItem> { 
             val q = query.trim().lowercase()
-            return _mediaItems.value.filter { item ->
+            return visibleMediaItems.value.filter { item ->
                 item.title.lowercase().contains(q)
             }.take(topK).mapIndexed { idx, item ->
                 RankedChannelItem(item.id, 100f, idx + 1)

@@ -321,6 +321,72 @@ fun AuraMainContent(
     val databaseState by repository.databaseState.collectAsStateWithLifecycle()
     val currentSelectedItem = activePlaylist?.currentItem
 
+    val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        arrayOf(
+            android.Manifest.permission.READ_MEDIA_VIDEO,
+            android.Manifest.permission.READ_MEDIA_IMAGES,
+            android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+        )
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        arrayOf(
+            android.Manifest.permission.READ_MEDIA_VIDEO,
+            android.Manifest.permission.READ_MEDIA_IMAGES
+        )
+    } else {
+        arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    val scanPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        val isGranted = repository.hasStoragePermission(context)
+        if (isGranted) {
+            repository.libraryPreferences?.setFirstRunScanState(com.example.data.FirstRunScanState.GRANTED_SCAN_PENDING)
+            coroutineScope.launch {
+                repository.scanLocalMedia(context, isManual = false)
+                repository.libraryPreferences?.setFirstRunScanState(com.example.data.FirstRunScanState.INITIAL_SCAN_COMPLETE)
+            }
+        } else {
+            repository.libraryPreferences?.setFirstRunScanState(com.example.data.FirstRunScanState.DENIED)
+        }
+    }
+
+    val triggerScanOrRequestPermissions: () -> Unit = {
+        if (repository.hasStoragePermission(context)) {
+            repository.libraryPreferences?.setFirstRunScanState(com.example.data.FirstRunScanState.GRANTED_SCAN_PENDING)
+            coroutineScope.launch {
+                repository.scanLocalMedia(context, isManual = true)
+                repository.libraryPreferences?.setFirstRunScanState(com.example.data.FirstRunScanState.INITIAL_SCAN_COMPLETE)
+            }
+        } else {
+            scanPermissionLauncher.launch(permissionsToRequest)
+        }
+    }
+
+    LaunchedEffect(databaseState) {
+        if (databaseState == DatabaseState.READY) {
+            val libPrefs = repository.libraryPreferences
+            val currentState = libPrefs?.firstRunScanState?.value ?: com.example.data.FirstRunScanState.NEVER_REQUESTED
+            val hasPerm = repository.hasStoragePermission(context)
+
+            if (hasPerm) {
+                if (currentState != com.example.data.FirstRunScanState.INITIAL_SCAN_COMPLETE) {
+                    libPrefs?.setFirstRunScanState(com.example.data.FirstRunScanState.GRANTED_SCAN_PENDING)
+                    coroutineScope.launch {
+                        repository.scanLocalMedia(context, isManual = false)
+                        libPrefs?.setFirstRunScanState(com.example.data.FirstRunScanState.INITIAL_SCAN_COMPLETE)
+                    }
+                }
+            } else {
+                if (currentState == com.example.data.FirstRunScanState.NEVER_REQUESTED) {
+                    scanPermissionLauncher.launch(permissionsToRequest)
+                } else if (currentState == com.example.data.FirstRunScanState.INITIAL_SCAN_COMPLETE) {
+                    libPrefs?.setFirstRunScanState(com.example.data.FirstRunScanState.PERMISSION_REVOKED)
+                }
+            }
+        }
+    }
+
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     var isPendingComparisonDelete by remember { mutableStateOf(false) }
 
@@ -596,7 +662,7 @@ fun AuraMainContent(
                                 val active = repository.activePlaylist.value
                                 if (active != null && active.items.isNotEmpty()) {
                                     val count = active.items.size
-                                    val countMsg = if (count == 1) "Loaded 1 similar item" else "Loaded $count similar items"
+                                    val countMsg = if (count == 1) "Found 1 similar item" else "Found $count similar items"
                                     Log.d("SEE_SIMILAR_TRACE", "STAGE=SUCCESS requestId=$requestId playlistSize=$count")
                                     android.widget.Toast.makeText(context, countMsg, android.widget.Toast.LENGTH_SHORT).show()
                                 } else {
@@ -608,7 +674,7 @@ fun AuraMainContent(
                                 android.widget.Toast.makeText(context, "Couldn't find similar items", android.widget.Toast.LENGTH_LONG).show()
                             } else {
                                 Log.d("SEE_SIMILAR_TRACE", "STAGE=NO_RESULTS requestId=$requestId")
-                                android.widget.Toast.makeText(context, "No visually similar items found", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(context, "Found 0 similar items", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         }
                     },
@@ -705,7 +771,7 @@ fun AuraMainContent(
                                     repository.importMediaFromUris(context, uris)
                                 },
                                 onScanDevice = {
-                                    repository.scanLocalMedia(context, isManual = true)
+                                    triggerScanOrRequestPermissions()
                                 },
                                 onSyncClick = {
                                     if (com.example.BuildConfig.ENABLE_DEVELOPER_TOOLS) {

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.DiscoverSessionManager
 import com.example.data.MediaRepository
+import com.example.data.MediaItem
 import com.example.data.ObsessionRecommendation
 import com.example.data.SystemDiscoveryState
 import com.example.data.TasteDNA
@@ -58,6 +59,12 @@ class DiscoverViewModel(
 
     private var hasSeenTasteReveal = false
 
+    private suspend fun getGatedItems(): List<MediaItem> = try {
+        repository.candidateEligibleMediaItems.first()
+    } catch (_: Exception) {
+        try { repository.mediaItems.first() } catch (_: Exception) { emptyList() }
+    }
+
     init {
         // Initial load: Sync with repository snapshot or trigger fresh generation
         viewModelScope.launch {
@@ -73,9 +80,10 @@ class DiscoverViewModel(
             }
         }
 
-        // Phase 10/12: Observe mediaItems to resolve "Awaiting media" race condition
+        // Phase 10/12: Observe visibleMediaItems to resolve "Awaiting media" race condition
         viewModelScope.launch {
-            repository.mediaItems.collect { items ->
+            val flow = try { repository.candidateEligibleMediaItems } catch (_: Exception) { null } ?: repository.mediaItems
+            flow.collect { items ->
                 val currentState = _feedState.value
                 if (items.isNotEmpty() && currentState is DiscoverFeedState.Success && currentState.snapshot.obsessions.isEmpty()) {
                     android.util.Log.d("DiscoverViewModel", "Media items became available. Auto-refreshing Discover.")
@@ -136,7 +144,7 @@ class DiscoverViewModel(
 
     fun triggerManualTasteReveal() {
         viewModelScope.launch {
-            val items = repository.mediaItems.first()
+            val items = getGatedItems()
             val dna = repository.tasteDNA.first()
             val profile = repository.preferenceProfile.first()
             val stats = repository.intelligenceStats.first()
@@ -162,7 +170,7 @@ class DiscoverViewModel(
             }
 
             try {
-                val items = repository.mediaItems.first()
+                val items = getGatedItems()
                 val dna = repository.tasteDNA.first()
                 val profile = repository.preferenceProfile.first()
                 val stats = repository.intelligenceStats.first()
@@ -214,7 +222,7 @@ class DiscoverViewModel(
                 true
             )
             
-            val items = repository.mediaItems.first()
+            val items = getGatedItems()
             val dna = repository.tasteDNA.first()
             val profile = repository.preferenceProfile.first()
             val policy = repository.discoveryPolicy.first()
@@ -259,7 +267,7 @@ class DiscoverViewModel(
             }
             _detailState.value = currentState.copy(isLoading = true)
 
-            val items = repository.mediaItems.first()
+            val items = getGatedItems()
             val dna = repository.tasteDNA.first()
             val profile = repository.preferenceProfile.first()
             val policy = repository.discoveryPolicy.first()

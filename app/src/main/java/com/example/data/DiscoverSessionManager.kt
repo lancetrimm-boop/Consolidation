@@ -35,7 +35,7 @@ class DiscoverSessionManager {
             repository, tasteDNA, profile, stats, creatorProfiles
         )
 
-        val systemState = ConfidenceEngine.calculateDiscoveryState(repository.visibleMediaItems.value, stats)
+        val systemState = ConfidenceEngine.calculateDiscoveryState(repository.candidateEligibleMediaItems.value, stats)
 
         // Attach explanations and pre-mark previews as seen
         val explainedObsessions = obsessions.map { obsession ->

@@ -52,10 +52,10 @@ class AuraPhase1MediaFilteringTest {
             val items = listOf(
                 createMediaItem("1", CompatibilityStatus.PLAYABLE),
                 createMediaItem("2", CompatibilityStatus.CORRUPT),
-                createMediaItem("3", CompatibilityStatus.UNSUPPORTED),
+                createMediaItem("3", CompatibilityStatus.PLAYABLE_SOFTWARE_DECODE),
                 createMediaItem("4", CompatibilityStatus.DELETED),
                 createMediaItem("5", CompatibilityStatus.UNTESTED),
-                createMediaItem("6", CompatibilityStatus.NEEDS_TRANSCODE),
+                createMediaItem("6", CompatibilityStatus.THUMBNAIL_FAILED),
                 createMediaItem("7", CompatibilityStatus.PLAYABLE, isDeleted = true)
             )
 
@@ -68,15 +68,14 @@ class AuraPhase1MediaFilteringTest {
                 tasteDNA = TasteDNA()
             )
 
-            // Should exclude: 2 (CORRUPT), 4 (DELETED), 7 (isDeleted=true)
-            // Should preserve in Library: 1 (PLAYABLE), 3 (UNSUPPORTED), 5 (UNTESTED), 6 (NEEDS_TRANSCODE)
-            assertEquals(4, filtered.size)
+            // Should preserve in Library: 1 (PLAYABLE), 3 (PLAYABLE_SOFTWARE_DECODE), 6 (THUMBNAIL_FAILED)
+            assertEquals(3, filtered.size)
             assertTrue(filtered.any { it.id == "1" })
             assertTrue(filtered.any { it.id == "3" })
-            assertTrue(filtered.any { it.id == "5" })
             assertTrue(filtered.any { it.id == "6" })
             assertFalse(filtered.any { it.id == "2" })
             assertFalse(filtered.any { it.id == "4" })
+            assertFalse(filtered.any { it.id == "5" })
             assertFalse(filtered.any { it.id == "7" })
         } finally {
             repository.close()

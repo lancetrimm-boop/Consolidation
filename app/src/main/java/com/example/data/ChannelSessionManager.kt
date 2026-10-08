@@ -67,7 +67,7 @@ class ChannelSessionManager(
                 return@withContext
             }
 
-            val availableMedia = repository.mediaItems.value.filter { repository.isItemVisibleInLibrary(it) }
+            val availableMedia = repository.candidateEligibleMediaItems.value
             if (availableMedia.isNotEmpty()) {
                 val db = repository.getDatabase()
                 val feedback = db?.programmingFeedbackDao()?.getAllFeedback() ?: emptyList()
@@ -189,7 +189,7 @@ class ChannelSessionManager(
         val targetGen = currentSessionGeneration
 
         try {
-            val availableMedia = repository.mediaItems.value.filter { repository.isItemVisibleInLibrary(it) }
+            val availableMedia = repository.candidateEligibleMediaItems.value
             val db = repository.getDatabase()
             val feedback = db?.programmingFeedbackDao()?.getAllFeedback() ?: emptyList()
             val skipEvents = db?.aiSkipDao()?.observeAllEvents()?.firstOrNull() ?: emptyList()

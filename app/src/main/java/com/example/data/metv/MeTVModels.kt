@@ -3,6 +3,17 @@ package com.example.data.metv
 import com.example.data.MediaItem
 
 /**
+ * Persisted candidate representation for MeTV discovery station.
+ * Contains Gate 1/2 metadata (gateVersion & snapshotHash) for Gate 2 verification.
+ */
+data class MeTVCandidate(
+    val mediaId: String,
+    val mediaItem: MediaItem,
+    val gateVersion: Int = 0,
+    val snapshotHash: String = ""
+)
+
+/**
  * Domain model representing programming quality feedback.
  * Isolates algorithm feedback from item taste ratings.
  */

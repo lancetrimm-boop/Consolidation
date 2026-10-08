@@ -108,7 +108,8 @@ fun LibraryScreen(
         autoScrollSpeed = autoScrollSpeed,
         importProgress = importProgress,
         scanProgress = scanProgress,
-        provenanceMap = repository.latestLibraryProvenance.collectAsStateWithLifecycle().value
+        provenanceMap = repository.latestLibraryProvenance.collectAsStateWithLifecycle().value,
+        admissionProgress = repository.presentationMediaStore.admissionProgress.collectAsStateWithLifecycle().value
     )
 
     LibraryContent(
@@ -405,24 +406,6 @@ fun LibraryContent(
         }
     }
 
-    val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        arrayOf(
-            Manifest.permission.READ_MEDIA_VIDEO,
-            Manifest.permission.READ_MEDIA_IMAGES,
-            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
-        )
-    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        arrayOf(Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_IMAGES)
-    } else {
-        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-    }
-
-    val scanPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        onTriggerScan()
-    }
-
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isLandscape = this.maxWidth > this.maxHeight
         
@@ -608,8 +591,9 @@ fun LibraryContent(
                 )
             }
 
-            // AURA DESIGN REPAIR: Removed global persistent purple loading line. 
-            // Manual scans are already handled by PullToRefreshBox.
+            if (!state.admissionProgress.isAnalysisComplete) {
+                com.example.ui.components.AdmissionProgressBanner(progress = state.admissionProgress)
+            }
 
             PullToRefreshBox(
                 isRefreshing = state.scanProgress.isScanning && state.scanProgress.isManual,
@@ -617,7 +601,7 @@ fun LibraryContent(
                     onRefresh()
                     stableItems = emptyList() // Force reload on manual refresh
                     if (state.dbState == com.example.data.DatabaseState.READY) {
-                        scanPermissionLauncher.launch(permissionsToRequest)
+                        onTriggerScan()
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -625,7 +609,9 @@ fun LibraryContent(
                 if (displayItems.isEmpty()) {
                     val isLibraryEmpty = state.mediaItems.isEmpty()
 
-                    if (isSearchActive) {
+                    if (!state.admissionProgress.isAnalysisComplete && isLibraryEmpty) {
+                        com.example.ui.components.LibraryScanningPlaceholder()
+                    } else if (isSearchActive) {
                         EmptySearchStateView(
                             isStillProcessing = state.searchError == "STILL_PROCESSING",
                             onClearSearch = {
@@ -645,7 +631,7 @@ fun LibraryContent(
                     } else {
                         EmptyLibraryView(
                             onImportClick = { photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                            onScanClick = { scanPermissionLauncher.launch(permissionsToRequest) }
+                            onScanClick = { onTriggerScan() }
                         )
                     }
                 } else {
