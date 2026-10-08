@@ -187,6 +187,9 @@ object MediaThumbnailFetcher {
                 retriever.setDataSource(uriString)
             }
 
+            val rotStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION) } catch (_: Exception) { null }
+            val rotation = rotStr?.toIntOrNull() ?: 0
+
             val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 retriever.getScaledFrameAtTime(
                     timeUs, 
@@ -198,8 +201,13 @@ object MediaThumbnailFetcher {
                 retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             } ?: try { retriever.frameAtTime } catch (_: Exception) { null }
             
-            // AURA REPAIR: Extra safety for NULL pointer from native MediaMetadataRetriever
-            if (isValidBitmap(frame)) frame else null
+            if (isValidBitmap(frame)) {
+                if (rotation != 0) {
+                    MediaOrientationUtils.rotateBitmapIfNeeded(frame!!, rotation)
+                } else {
+                    frame
+                }
+            } else null
         } catch (e: Exception) {
             Log.w(TAG, "MediaMetadataRetriever failed for $uriString: ${e.message}")
             null

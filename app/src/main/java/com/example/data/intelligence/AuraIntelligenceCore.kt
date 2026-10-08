@@ -250,7 +250,7 @@ class AuraIntelligenceCore(
         val creators = request.creatorProfiles ?: repository.creatorProfiles.value
         
         val items = allItems.filter { item ->
-            isItemVisibleInLibrary(item, request) && matchesFilterType(item, request.filterType)
+            repository.isItemEligibleForCandidates(item) && isItemVisibleInLibrary(item, request) && matchesFilterType(item, request.filterType)
         }
 
         DecisionTraceCollector.logEvent(
@@ -644,11 +644,7 @@ class AuraIntelligenceCore(
 
     private fun seal(candidates: List<IntelligenceCandidate>, request: IntelligenceRequest): List<IntelligenceCandidate> {
         return candidates.filter { 
-            val visible = if (request.mode == IntelligenceMode.DISCOVER) {
-                repository.isItemEligibleForCandidates(it.item)
-            } else {
-                isItemVisibleInLibrary(it.item, request)
-            }
+            val visible = repository.isItemEligibleForCandidates(it.item) && isItemVisibleInLibrary(it.item, request)
             if (!visible) {
                 DecisionTraceCollector.logEvent(request.requestId, com.example.ui.models.TraceEventType.ELIGIBILITY_CHECK, detail = "Dropped at Seal", metadata = mapOf("itemId" to it.item.id))
             }
@@ -704,7 +700,8 @@ class AuraIntelligenceCore(
     }
 
     private fun finalizeResults(candidates: List<IntelligenceCandidate>, request: IntelligenceRequest): List<IntelligenceCandidate> {
-        val sorted = candidates.sortedWith(
+        val sealed = seal(candidates, request)
+        val sorted = sealed.sortedWith(
             compareByDescending<IntelligenceCandidate> { it.rankScore }
                 .thenByDescending { it.primaryRelevanceScore }
                 .thenBy { it.item.id }

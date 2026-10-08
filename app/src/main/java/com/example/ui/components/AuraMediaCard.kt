@@ -320,6 +320,9 @@ fun AuraMediaThumbnail(
             // Invariant: only apply if itemId still matches the requested one
             if (isActive) {
                 thumbnailResult = ThumbnailResult(itemId, bitmap, isFailure = bitmap == null)
+                if (bitmap == null && isVideo) {
+                    com.example.data.MediaRepository.getInstance(context).updateItemCompatibilityStatus(itemId, com.example.data.CompatibilityStatus.THUMBNAIL_FAILED)
+                }
             }
         } else {
             thumbnailResult = ThumbnailResult(itemId, null, isFailure = true)

@@ -749,19 +749,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     CompareMediaTypeFilter.VIDEOS -> isVideo
                 }
             }
+            val context = applicationContext
             val eligible = items.filter { item ->
                 if (item.isDeleted || item.itemCount != null) return@filter false
-                val isVideo = item.mediaType.equals("VIDEO", ignoreCase = true) || item.mediaType.equals("MOVIE", ignoreCase = true) || item.mediaType.startsWith("VIDEO", ignoreCase = true) || item.mediaType.startsWith("MOVIE", ignoreCase = true)
-                if (isVideo) {
-                    com.example.compatibility.AuraPlaybackRouter.resolveRoute(item) is com.example.compatibility.PlaybackRouteResult.Playable
-                } else {
-                    item.compatibilityStatus !in listOf(
-                        CompatibilityStatus.CORRUPT,
-                        CompatibilityStatus.UNREADABLE,
-                        CompatibilityStatus.DELETED,
-                        CompatibilityStatus.REPLACED
-                    ) && (item.uriPath.isNotBlank() || item.imageUrl.isNotBlank())
-                }
+                isItemEligibleForCandidates(item) && isItemVisibleInLibrary(item) && (item.uriPath.isNotBlank() || item.imageUrl.isNotBlank())
             }
             if (eligible.size < 2) { 
                 _pairwiseState.value = PairwiseComparison("p_empty", _pairwiseState.value.roundNumber, 50, emptyMediaItem, emptyMediaItem)
@@ -779,7 +770,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
             var selectedPair: Pair<MediaItem, MediaItem>? = null
             if (shouldAdvance && preFetchedPair != null) {
-                selectedPair = preFetchedPair
+                val candidate = preFetchedPair!!
+                if (context == null || (isUriAccessible(context, candidate.first.uriPath) && isUriAccessible(context, candidate.second.uriPath))) {
+                    selectedPair = candidate
+                }
                 preFetchedPair = null
             }
 
@@ -798,7 +792,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     inputItems = eligible
                 )
                 val discoveryState = getDiscoveryStateMemoized(items)
-                selectedPair = RecommendationEngine.selectNextPairFromPool(
+                val rawPair = RecommendationEngine.selectNextPairFromPool(
                     top100, 
                     _comparisonCounts.value, 
                     if (session.isActive) session.comparedPairIds else currentRecentPairs, 
@@ -810,6 +804,17 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     _creatorProfiles.value, 
                     _compareStrategy.value
                 )
+                if (rawPair != null && context != null) {
+                    if (!isUriAccessible(context, rawPair.first.uriPath)) {
+                        updateItemCompatibilityStatus(rawPair.first.id, CompatibilityStatus.UNREADABLE)
+                    } else if (!isUriAccessible(context, rawPair.second.uriPath)) {
+                        updateItemCompatibilityStatus(rawPair.second.id, CompatibilityStatus.UNREADABLE)
+                    } else {
+                        selectedPair = rawPair
+                    }
+                } else {
+                    selectedPair = rawPair
+                }
             }
 
             if (shouldAdvance && selectedPair != null) {
@@ -1187,8 +1192,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
     }
 
-    private fun updateItemCompatibilityStatus(itemId: String, status: CompatibilityStatus) {
-        scope.launch {
+    fun updateItemCompatibilityStatus(itemId: String, status: CompatibilityStatus) {
+        scope.launch(dispatcher) {
             updateMediaItemsState { list ->
                 list.map { if (it.id == itemId) it.copy(compatibilityStatus = status) else it }
             }
@@ -1352,6 +1357,24 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             }
         } else {
             filtered
+        }
+    }
+
+    private fun isUriAccessible(context: Context, uriString: String): Boolean {
+        if (uriString.isBlank()) return false
+        return try {
+            val uri = android.net.Uri.parse(uriString)
+            if (uri.scheme == "file" || uriString.startsWith("/")) {
+                val path = if (uriString.startsWith("file://")) uri.path ?: uriString.removePrefix("file://") else uriString
+                val file = java.io.File(path)
+                file.exists() && file.canRead()
+            } else if (uri.scheme == "content") {
+                context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
+            } else {
+                true
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -1522,7 +1545,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     
     private fun MediaItem.toEntity(): MediaEntity = MediaEntity(id = id, title = title, mediaType = mediaType, year = year, duration = duration, genre = genre, imageUrl = imageUrl, gradientColorsJson = gradientColors.joinToString(","), rating = rating, isFavorite = isFavorite, progress = progress, progressText = progressText, category = category, aiSummary = aiSummary, moodTagsJson = moodTags.joinToString(","), itemCount = itemCount, eloRating = eloRating, uriPath = uriPath, dateAdded = dateAdded, dateModified = dateModified, sizeBytes = sizeBytes, durationMs = durationMs, width = width, height = height, lastViewedTimestamp = lastViewedTimestamp, playCount = viewCount, exposureCount = exposureCount, lastExposedTimestamp = lastExposedTimestamp, contentHash = contentHash, parentContentId = parentContentId, isDeleted = isDeleted, compatibilityStatus = compatibilityStatus.name, containerFormat = containerFormat, videoCodec = videoCodec, audioCodec = audioCodec, compatibilityReason = compatibilityReason, conversionStatus = conversionStatus.name, convertedUri = convertedUri ?: "", lastCompatibilityCheckTimestamp = lastCompatibilityCheckTimestamp, selectionReason = if (isEphemeralReason(selectionReason)) null else selectionReason, creatorId = creatorId, creatorName = creatorName, sourcePlatform = sourcePlatform, replacedByMediaId = replacedByMediaId)
     
-    private fun MediaEntity.toMediaItem(): MediaItem { val isVideo = mediaType.equals("VIDEO", ignoreCase = true) || mediaType.equals("Movie", ignoreCase = true); val gradients = if (isVideo) listOf(0xFF1E1B4BL, 0xFF4338CAL, 0xFF7C3AEDL) else listOf(0xFF311B92L, 0xFF6A1B9AL, 0xFFD946EFL); return MediaItem(id = id, title = title, mediaType = if (isVideo) "VIDEO" else "PHOTO", year = year, duration = duration, genre = genre, imageUrl = imageUrl, gradientColors = if (gradientColorsJson.isBlank()) gradients else gradientColorsJson.split(",").mapNotNull { it.toLongOrNull() }, rating = rating, isFavorite = isFavorite, progress = progress, progressText = progressText, category = category, aiSummary = aiSummary, moodTags = if (moodTagsJson.isEmpty()) emptyList() else moodTagsJson.split(","), uriPath = uriPath, itemCount = itemCount, sizeBytes = sizeBytes, dateAdded = dateAdded, dateModified = dateModified, durationMs = durationMs, width = width, height = height, lastViewedTimestamp = lastViewedTimestamp, viewCount = playCount, exposureCount = exposureCount, lastExposedTimestamp = lastExposedTimestamp, contentHash = contentHash, parentContentId = parentContentId, eloRating = eloRating, isDeleted = isDeleted, compatibilityStatus = try { CompatibilityStatus.valueOf(compatibilityStatus) } catch (e: Exception) { CompatibilityStatus.PLAYABLE }, containerFormat = containerFormat, videoCodec = videoCodec, audioCodec = audioCodec, compatibilityReason = compatibilityReason, conversionStatus = try { ConversionStatus.valueOf(conversionStatus) } catch (e: Exception) { ConversionStatus.NONE }, convertedUri = convertedUri.ifBlank { null }, lastCompatibilityCheckTimestamp = lastCompatibilityCheckTimestamp, selectionReason = if (compatibilityStatus == "ANALYSIS_FAILED") "Retry Analysis" else selectionReason, creatorId = creatorId, creatorName = creatorName, sourcePlatform = sourcePlatform, replacedByMediaId = replacedByMediaId) }
+    private fun MediaEntity.toMediaItem(): MediaItem { val isVideo = mediaType.equals("VIDEO", ignoreCase = true) || mediaType.equals("Movie", ignoreCase = true); val gradients = if (isVideo) listOf(0xFF1E1B4BL, 0xFF4338CAL, 0xFF7C3AEDL) else listOf(0xFF311B92L, 0xFF6A1B9AL, 0xFFD946EFL); return MediaItem(id = id, title = title, mediaType = if (isVideo) "VIDEO" else "PHOTO", year = year, duration = duration, genre = genre, imageUrl = imageUrl, gradientColors = if (gradientColorsJson.isBlank()) gradients else gradientColorsJson.split(",").mapNotNull { it.toLongOrNull() }, rating = rating, isFavorite = isFavorite, progress = progress, progressText = progressText, category = category, aiSummary = aiSummary, moodTags = if (moodTagsJson.isEmpty()) emptyList() else moodTagsJson.split(","), uriPath = uriPath, itemCount = itemCount, sizeBytes = sizeBytes, dateAdded = dateAdded, dateModified = dateModified, durationMs = durationMs, width = width, height = height, lastViewedTimestamp = lastViewedTimestamp, viewCount = playCount, exposureCount = exposureCount, lastExposedTimestamp = lastExposedTimestamp, contentHash = contentHash, parentContentId = parentContentId, eloRating = eloRating, isDeleted = isDeleted, compatibilityStatus = try { CompatibilityStatus.valueOf(compatibilityStatus) } catch (e: Exception) { CompatibilityStatus.ANALYSIS_PENDING }, containerFormat = containerFormat, videoCodec = videoCodec, audioCodec = audioCodec, compatibilityReason = compatibilityReason, conversionStatus = try { ConversionStatus.valueOf(conversionStatus) } catch (e: Exception) { ConversionStatus.NONE }, convertedUri = convertedUri.ifBlank { null }, lastCompatibilityCheckTimestamp = lastCompatibilityCheckTimestamp, selectionReason = if (compatibilityStatus == "ANALYSIS_FAILED") "Retry Analysis" else selectionReason, creatorId = creatorId, creatorName = creatorName, sourcePlatform = sourcePlatform, replacedByMediaId = replacedByMediaId) }
     
     private fun isEphemeralReason(reason: String?): Boolean = reason != null && (reason in setOf("Surprise!", "For You", "Hidden Gem", "Best Match", "Personalized", "New Discovery", "Blast from the Past", "Your Favorite") || Regex("""\d+% Match""").matches(reason))
     

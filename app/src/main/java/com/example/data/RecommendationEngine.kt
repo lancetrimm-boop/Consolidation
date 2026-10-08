@@ -234,17 +234,7 @@ object RecommendationEngine {
         // Final fallback (Safe degraded state - used in tests or when AI core fails or returns empty)
         val basePool = (inputItems ?: repository.candidateEligibleMediaItems.value).filter { item ->
             if (item.isDeleted || item.itemCount != null) return@filter false
-            val isVideo = item.mediaType.equals("VIDEO", ignoreCase = true) || item.mediaType.equals("MOVIE", ignoreCase = true) || item.mediaType.startsWith("VIDEO", ignoreCase = true) || item.mediaType.startsWith("MOVIE", ignoreCase = true)
-            if (isVideo) {
-                com.example.compatibility.AuraPlaybackRouter.resolveRoute(item) is com.example.compatibility.PlaybackRouteResult.Playable
-            } else {
-                item.compatibilityStatus !in listOf(
-                    CompatibilityStatus.CORRUPT,
-                    CompatibilityStatus.UNREADABLE,
-                    CompatibilityStatus.DELETED,
-                    CompatibilityStatus.REPLACED
-                ) && (item.uriPath.isNotBlank() || item.imageUrl.isNotBlank())
-            }
+            repository.isItemEligibleForCandidates(item) && repository.isItemVisibleInLibrary(item) && (item.uriPath.isNotBlank() || item.imageUrl.isNotBlank())
         }.filter { item ->
             val type = item.mediaType.uppercase()
             when (mediaTypeFilter.uppercase()) {

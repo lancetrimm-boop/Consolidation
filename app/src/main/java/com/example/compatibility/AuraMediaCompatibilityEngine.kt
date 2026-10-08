@@ -1,6 +1,7 @@
 package com.example.compatibility
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -96,13 +97,16 @@ object AuraMediaCompatibilityEngine {
         // 1. Check file accessibility & size
         val uri = Uri.parse(uriString)
         try {
-            if (uriString.startsWith("content://") || uriString.startsWith("file://")) {
+            if (uriString.startsWith("content://")) {
                 context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
                     sizeBytes = pfd.statSize
                 }
-            } else if (uriString.startsWith("/")) {
-                val f = File(uriString)
-                if (f.exists()) sizeBytes = f.length()
+            } else {
+                val path = if (uriString.startsWith("file://")) uri.path ?: uriString.removePrefix("file://") else uriString
+                val f = File(path)
+                if (f.exists() && f.canRead()) {
+                    sizeBytes = f.length()
+                }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Accessibility check failed for $uriString: ${e.message}")
@@ -162,8 +166,18 @@ object AuraMediaCompatibilityEngine {
 
             val wStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
             val hStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-            width = wStr?.toIntOrNull() ?: 0
-            height = hStr?.toIntOrNull() ?: 0
+            val rotStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+            val rawWidth = wStr?.toIntOrNull() ?: 0
+            val rawHeight = hStr?.toIntOrNull() ?: 0
+            val rotation = rotStr?.toIntOrNull() ?: 0
+
+            if (com.example.util.MediaOrientationUtils.shouldSwapDimensions(rotation)) {
+                width = rawHeight
+                height = rawWidth
+            } else {
+                width = rawWidth
+                height = rawHeight
+            }
 
             containerFormat = detectContainerFormat(uriString, mimeType)
         } catch (e: Exception) {
@@ -305,6 +319,8 @@ object AuraMediaCompatibilityEngine {
         val uri = Uri.parse(uriString)
         var exists = true
         var sizeBytes = 0L
+        var width = 0
+        var height = 0
 
         try {
             if (uriString.startsWith("content://") || uriString.startsWith("file://")) {
@@ -312,10 +328,24 @@ object AuraMediaCompatibilityEngine {
                     sizeBytes = pfd.statSize
                     exists = sizeBytes >= 0L
                 } ?: run { exists = false }
+                if (exists) {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeStream(stream, null, options)
+                        width = options.outWidth
+                        height = options.outHeight
+                    }
+                }
             } else if (uriString.startsWith("/")) {
                 val f = File(uriString)
                 exists = f.exists()
-                if (exists) sizeBytes = f.length()
+                if (exists) {
+                    sizeBytes = f.length()
+                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(uriString, options)
+                    width = options.outWidth
+                    height = options.outHeight
+                }
             }
         } catch (e: Exception) {
             exists = false
@@ -344,8 +374,8 @@ object AuraMediaCompatibilityEngine {
             containerFormat = detectContainerFormat(uriString, "image/jpeg"),
             videoCodec = "N/A",
             audioCodec = "N/A",
-            width = 0,
-            height = 0,
+            width = width,
+            height = height,
             durationMs = 0L,
             mimeType = "image/*",
             sizeBytes = sizeBytes,
