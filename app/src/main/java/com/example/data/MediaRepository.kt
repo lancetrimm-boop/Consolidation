@@ -1559,7 +1559,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 referenceItemId = item.id,
                 requestId = requestId,
                 filterType = "ALL",
-                limit = 50
+                limit = 25
             )
             intelligenceCore?.processRequest(req) ?: IntelligenceResponse(
                 requestId = requestId,

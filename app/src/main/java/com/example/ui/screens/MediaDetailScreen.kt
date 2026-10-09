@@ -346,6 +346,7 @@ fun MediaDetailScreen(
     var activePlaybackError by remember { mutableStateOf<PlaybackErrorClassification?>(null) }
     var lastErrorLogId by remember { mutableLongStateOf(-1L) }
     var deferredRecoveryUpdate by remember { mutableStateOf<Pair<Boolean, Boolean?>?>(null) }
+    var consecutiveFailureCount by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     LaunchedEffect(activeItem.id) {
         activePlaybackError = null
@@ -387,6 +388,9 @@ fun MediaDetailScreen(
             addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
                     isPlaying = playing
+                    if (playing) {
+                        consecutiveFailureCount = 0
+                    }
                 }
                 
                 override fun onMediaItemTransition(mediaItem: Media3Item?, reason: Int) {
@@ -418,7 +422,9 @@ fun MediaDetailScreen(
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) {
+                    if (playbackState == Player.STATE_READY) {
+                        consecutiveFailureCount = 0
+                    } else if (playbackState == Player.STATE_ENDED) {
                         exposureTracker?.updateVideoProgress(
                             currentPositionMs = this@apply.currentPosition,
                             durationMs = this@apply.duration,
@@ -427,6 +433,8 @@ fun MediaDetailScreen(
                         )
                         if (isAtEndOfPlaylist) {
                             showEndOfChannelPrompt = true
+                        } else {
+                            onNext()
                         }
                         repository.interactionRepository?.let { iRepo ->
                             com.example.data.AuraInteractionService.logInteraction(
@@ -451,9 +459,18 @@ fun MediaDetailScreen(
                         lastErrorLogId = logId
                     }
 
-                    // Classify error for specialized handling and recovery
                     val classification = PlaybackErrorClassifier.classify(error)
-                    activePlaybackError = classification
+                    consecutiveFailureCount++
+                    val itemTitle = activeItem.title.ifBlank { "unplayable file" }
+                    Toast.makeText(context, "Skipped unplayable item: $itemTitle", Toast.LENGTH_SHORT).show()
+                    Log.w("PlaylistTrace", "Playback error on '${activeItem.id}' ($itemTitle). Consecutive failures: $consecutiveFailureCount")
+
+                    if (consecutiveFailureCount < 3 && playlistState?.hasNext == true) {
+                        onNext()
+                    } else {
+                        // Circuit breaker tripped (N=3) or end of playlist reached
+                        activePlaybackError = classification
+                    }
                 }
             })
         }
@@ -595,8 +612,10 @@ fun MediaDetailScreen(
             } else {
                 // 2. Just synchronize index if playlist is already correctly loaded
                 val targetVideoIndex = videoOnlyItems.indexOfFirst { it.id == activeItem.id }
-                if (targetVideoIndex != -1 && exoPlayer.currentMediaItemIndex != targetVideoIndex) {
+                if (targetVideoIndex != -1 && (exoPlayer.currentMediaItemIndex != targetVideoIndex || exoPlayer.playbackState == Player.STATE_IDLE)) {
                     exoPlayer.seekTo(targetVideoIndex, 0L)
+                    exoPlayer.prepare()
+                    exoPlayer.play()
                     repository.updatePlaybackPosition(0L)
                 }
             }
@@ -1269,6 +1288,7 @@ fun MediaDetailScreen(
             onRetry = {
                 recordRecovery(attempted = true, successful = null)
                 activePlaybackError = null
+                consecutiveFailureCount = 0
                 exoPlayer.prepare()
                 exoPlayer.play()
             },
@@ -1306,6 +1326,7 @@ fun MediaDetailScreen(
             onSkip = {
                 recordRecovery(attempted = true, successful = true)
                 activePlaybackError = null
+                consecutiveFailureCount = 0
                 if (playlistState?.hasNext == true) {
                     onNext()
                 } else {
@@ -1314,6 +1335,7 @@ fun MediaDetailScreen(
             },
             onDismiss = {
                 activePlaybackError = null
+                exoPlayer.pause()
             }
         )
     }
