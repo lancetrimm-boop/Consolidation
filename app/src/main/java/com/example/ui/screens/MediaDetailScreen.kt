@@ -18,6 +18,8 @@ import androidx.media3.common.PlaybackException
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.mediarouter.app.MediaRouteButton
+import com.google.android.gms.cast.framework.CastButtonFactory
 import com.example.data.AISkipEngine
 import com.example.data.ClipCandidate
 import com.example.data.ClipTelemetryService
@@ -473,6 +475,18 @@ fun MediaDetailScreen(
                     }
                 }
             })
+        }
+    }
+
+    val castManager = remember(context, exoPlayer) { com.example.cast.AuraCastManager.getInstance(context, exoPlayer) }
+    val isCasting by castManager.isCasting.collectAsStateWithLifecycle()
+
+    LaunchedEffect(activeItem.id, isCasting) {
+        if (isCasting) {
+            val resolved = com.example.cast.AuraCastMediaResolver.resolveForCast(context, repository, activeItem)
+            if (resolved != null) {
+                castManager.requestCast(resolved)
+            }
         }
     }
 
@@ -1071,6 +1085,20 @@ fun MediaDetailScreen(
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    AndroidView<MediaRouteButton>(
+                        factory = { ctx ->
+                            val themedContext = android.view.ContextThemeWrapper(ctx, com.google.android.gms.cast.framework.R.style.CastExpandedController)
+                            MediaRouteButton(themedContext).apply {
+                                CastButtonFactory.setUpMediaRouteButton(ctx, this)
+                            }
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .testTag("detail_cast_button")
+                    )
                 }
 
                 // Removed Center Controls row (Moving to unified Bottom Row)

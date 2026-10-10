@@ -377,8 +377,11 @@ class AuraIntelligenceCore(
                 val jitter = Random(item.id.hashCode().toLong() + request.seed).nextDouble()
                 IntelligenceCandidate(item, emptyList(), jitter, 0f, 0f, provenance = "Random")
             }
-            "SIZE" -> items.map { item ->
+            "SIZE", "LARGEST_FILES" -> items.map { item ->
                 IntelligenceCandidate(item, emptyList(), item.sizeBytes.toDouble(), item.sizeBytes.toFloat(), 0f, provenance = "Largest Files")
+            }
+            "SMALLEST_FILES" -> items.map { item ->
+                IntelligenceCandidate(item, emptyList(), -item.sizeBytes.toDouble(), -item.sizeBytes.toFloat(), 0f, provenance = "Smallest Files")
             }
             "RATING" -> items.map { item ->
                 IntelligenceCandidate(item, emptyList(), item.rating.toDouble(), item.rating, 0f, provenance = "Rating")

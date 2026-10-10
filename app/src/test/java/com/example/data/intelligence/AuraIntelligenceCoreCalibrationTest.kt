@@ -28,6 +28,7 @@ class AuraIntelligenceCoreCalibrationTest {
         whenever(repository.creatorProfiles).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(emptyMap()))
         whenever(repository.signatureStyleProfile).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(SignatureStyleProfile(emptyList(), emptyList())))
         whenever(repository.isItemVisibleInLibrary(any())).thenReturn(true)
+        whenever(repository.isItemEligibleForCandidates(any())).thenReturn(true)
     }
 
     @Test

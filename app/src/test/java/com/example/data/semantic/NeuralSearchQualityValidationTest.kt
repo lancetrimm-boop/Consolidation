@@ -37,6 +37,7 @@ class NeuralSearchQualityValidationTest {
 
     @Before
     fun setUp() {
+        org.junit.Assume.assumeTrue("Model file must exist for ONNX runtime tests", File(modelPath).exists())
         context = ApplicationProvider.getApplicationContext()
         
         // Setup Engine and Tokenizer
@@ -102,8 +103,12 @@ class NeuralSearchQualityValidationTest {
 
     @After
     fun tearDown() {
-        engine.close()
-        database.close()
+        if (::engine.isInitialized) {
+            engine.close()
+        }
+        if (::database.isInitialized) {
+            database.close()
+        }
     }
 
     @Test

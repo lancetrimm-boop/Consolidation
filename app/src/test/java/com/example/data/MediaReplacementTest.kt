@@ -164,7 +164,7 @@ class MediaReplacementTest {
     @Test
     fun testOriginalSafetyOnFailure() = runBlocking {
         val oldId = "original_safe"
-        val original = MediaEntity(id = oldId, title = "Original", mediaType = "VIDEO")
+        val original = MediaEntity(id = oldId, title = "Original", mediaType = "VIDEO", compatibilityStatus = CompatibilityStatus.PLAYABLE.name)
         database.mediaDao().insert(original)
         
         // Simulate a failure during some high level process (not calling manager but verifying state logic)

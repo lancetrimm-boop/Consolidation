@@ -56,7 +56,10 @@ class LegacyEquivalenceTest {
         
         val allMedia = listOf(item1, item2, item3)
         whenever(repository.mediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(allMedia))
+        whenever(repository.candidateEligibleMediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(allMedia))
+        whenever(repository.visibleMediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(allMedia))
         whenever(repository.isItemVisibleInLibrary(any())).thenReturn(true)
+        whenever(repository.isItemEligibleForCandidates(any())).thenReturn(true)
         
         whenever(repository.tasteDNA).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(TasteDNA()))
         whenever(repository.intelligenceStats).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(IntelligenceStats()))
@@ -104,6 +107,8 @@ class LegacyEquivalenceTest {
         val items = listOf(item1, item2)
         
         whenever(repository.mediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(items))
+        whenever(repository.candidateEligibleMediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(items))
+        whenever(repository.visibleMediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(items))
         whenever(repository.tasteDNA).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(tasteDNA))
         whenever(repository.preferenceProfile).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(TasteDNA.PreferenceProfile()))
         whenever(repository.intelligenceStats).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(IntelligenceStats()))
@@ -112,6 +117,7 @@ class LegacyEquivalenceTest {
         whenever(repository.getMediaItemById("item1")).thenReturn(item1)
         whenever(repository.getMediaItemById("item2")).thenReturn(item2)
         whenever(repository.isItemVisibleInLibrary(any())).thenReturn(true)
+        whenever(repository.isItemEligibleForCandidates(any())).thenReturn(true)
 
         val core = AuraIntelligenceCore(repository, mock<RetrievalRouter>())
         

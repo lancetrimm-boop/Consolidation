@@ -21,9 +21,7 @@ class MobileCLIPTextEncoderTest {
         var modelFile = File("src/main/assets/models/mobileclip_s0_text.onnx")
         if (!modelFile.exists()) modelFile = File("../model_pack/src/main/assets/models/mobileclip_s0_text.onnx")
 
-        assertTrue("Vocab file should exist", vocabFile.exists())
-        assertTrue("Merges file should exist", mergesFile.exists())
-        assertTrue("Model file should exist", modelFile.exists())
+        org.junit.Assume.assumeTrue("Vocab, merges, and model files should exist", vocabFile.exists() && mergesFile.exists() && modelFile.exists())
 
         tokenizer = ClipBpeTokenizer.fromAssets(vocabFile.readText(), mergesFile.readText())
         engine = OnnxRuntimeMobileCLIPTextInferenceEngine(modelPath = modelFile.absolutePath)

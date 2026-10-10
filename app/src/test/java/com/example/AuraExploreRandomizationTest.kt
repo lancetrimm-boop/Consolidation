@@ -20,6 +20,8 @@ class AuraExploreRandomizationTest {
         
         // Mock all required flows with default empty/initial states
         whenever(repository.mediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(emptyList()))
+        whenever(repository.candidateEligibleMediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(emptyList()))
+        whenever(repository.visibleMediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(emptyList()))
         whenever(repository.tasteDNA).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(TasteDNA()))
         whenever(repository.preferenceProfile).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(TasteDNA.PreferenceProfile()))
         whenever(repository.intelligenceStats).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(IntelligenceStats()))
@@ -28,6 +30,7 @@ class AuraExploreRandomizationTest {
         
         // Use isA() to avoid nullability issues in Kotlin matchers
         whenever(repository.isItemVisibleInLibrary(isA())).thenReturn(true)
+        whenever(repository.isItemEligibleForCandidates(isA())).thenReturn(true)
     }
 
     private fun createItem(id: String) = MediaItem(
@@ -43,9 +46,10 @@ class AuraExploreRandomizationTest {
     @Test
     fun `test DISCOVER is stable within same session`() = runBlocking {
         val items = (1..50).map { createItem(it.toString()) }
-        whenever(repository.mediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(items))
-        // Already mocked in setup, but we can override if needed. 
-        // Here we just make sure we provide the items.
+        val flow = kotlinx.coroutines.flow.MutableStateFlow(items)
+        whenever(repository.mediaItems).thenReturn(flow)
+        whenever(repository.candidateEligibleMediaItems).thenReturn(flow)
+        whenever(repository.visibleMediaItems).thenReturn(flow)
 
 
         val request = IntelligenceRequest(
@@ -69,9 +73,10 @@ class AuraExploreRandomizationTest {
     @Test
     fun `test DISCOVER varies between different sessions`() = runBlocking {
         val items = (1..50).map { createItem(it.toString()) }
-        whenever(repository.mediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(items))
-        // Already mocked in setup, but we can override if needed. 
-        // Here we just make sure we provide the items.
+        val flow = kotlinx.coroutines.flow.MutableStateFlow(items)
+        whenever(repository.mediaItems).thenReturn(flow)
+        whenever(repository.candidateEligibleMediaItems).thenReturn(flow)
+        whenever(repository.visibleMediaItems).thenReturn(flow)
 
 
         val request1 = IntelligenceRequest(
@@ -105,9 +110,10 @@ class AuraExploreRandomizationTest {
             createItem("1").copy(viewCount = 10, exposureCount = 20),
             createItem("2")
         )
-        whenever(repository.mediaItems).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(items))
-        // Already mocked in setup, but we can override if needed. 
-        // Here we just make sure we provide the items.
+        val flow = kotlinx.coroutines.flow.MutableStateFlow(items)
+        whenever(repository.mediaItems).thenReturn(flow)
+        whenever(repository.candidateEligibleMediaItems).thenReturn(flow)
+        whenever(repository.visibleMediaItems).thenReturn(flow)
 
 
         val request = IntelligenceRequest(

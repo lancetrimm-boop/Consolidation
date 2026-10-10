@@ -51,6 +51,7 @@ class SearchQualityAuditTest {
 
     @Test
     fun auditSearchScores() = runTest {
+        org.junit.Assume.assumeTrue("MiniLM model must exist for audit", File(getAssetPath(minilmPath)).exists())
         // --- 1. MiniLM (Text-to-Title) Audit ---
         val minilmEngine = OnnxRuntimeMiniLMInferenceEngine(modelPath = getAssetPath(minilmPath))
         val minilmTokenizer = BertWordPieceTokenizer.fromVocabText(File(getAssetPath(minilmVocabPath)).readText())

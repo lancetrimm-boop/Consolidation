@@ -99,19 +99,62 @@ class CleanupReviewViewModel(
                 val stats = repository.intelligenceStats.value
 
                 kotlinx.coroutines.withContext(backgroundDispatcher) {
-                    val recommendations = ineligibleEntries.map { entry ->
-                        val reasonText = entry.reasons.joinToString { it.name }
-                        CleanupRecommendation(
-                            mediaId = entry.id,
-                            keepScore = 0.0f,
-                            confidenceScore = 1.0f,
-                            category = CleanupCategory.UNPLAYABLE_FILES,
-                            reasons = listOf(CleanupReason.UNPLAYABLE_MEDIA),
-                            storageSize = entry.sizeBytes,
-                            exposureCount = 0,
-                            createdTimestamp = entry.detectedAtEpochMs,
-                            explanation = "Ineligible: $reasonText"
-                        )
+                    val recommendations = if (ineligibleEntries.isNotEmpty()) {
+                        ineligibleEntries.map { entry ->
+                            val reasonText = entry.reasons.joinToString { it.name }
+                            CleanupRecommendation(
+                                mediaId = entry.id,
+                                keepScore = 0.0f,
+                                confidenceScore = 1.0f,
+                                category = CleanupCategory.UNPLAYABLE_FILES,
+                                reasons = listOf(CleanupReason.UNPLAYABLE_MEDIA),
+                                storageSize = entry.sizeBytes,
+                                exposureCount = 0,
+                                createdTimestamp = entry.detectedAtEpochMs,
+                                explanation = "Ineligible: $reasonText"
+                            )
+                        }
+                    } else {
+                        val items = repository.mediaItems.value
+                        val skipCounts = try { repository.getSkipCounts(items.map { it.id }) } catch (_: Exception) { emptyMap() }
+                        
+                        val inputs = items.map { item ->
+                            KeepScoreInput(
+                                mediaId = item.id,
+                                fileSize = item.sizeBytes,
+                                dateAdded = item.dateAdded,
+                                exposureCount = item.exposureCount,
+                                lastExposedTimestamp = item.lastExposedTimestamp,
+                                viewCount = item.viewCount,
+                                playCount = item.viewCount,
+                                averageWatchDuration = if (item.durationMs > 0) (item.lastViewedTimestamp ?: 0L).toFloat() / item.durationMs else 0f,
+                                completionPercentage = item.progress,
+                                skipCount = skipCounts[item.id] ?: 0,
+                                rating = item.rating,
+                                isFavorite = item.isFavorite,
+                                tasteAlignmentScore = 0.5f,
+                                rarityScore = 1.0f,
+                                contentHash = item.contentHash
+                            )
+                        }
+                        val results = inputs.map { KeepScoreEngine.calculateScore(it) }
+                        val metadata = items.associate { item ->
+                            item.id to CleanupItemMetadata(
+                                mediaId = item.id,
+                                title = item.title,
+                                sizeBytes = item.sizeBytes,
+                                exposureCount = item.exposureCount,
+                                viewCount = item.viewCount,
+                                mediaType = item.mediaType,
+                                contentHash = item.contentHash,
+                                isFavorite = item.isFavorite,
+                                width = item.width,
+                                height = item.height,
+                                durationMs = item.durationMs,
+                                dateAdded = item.dateAdded
+                            )
+                        }
+                        CleanupRecommendationEngine.generateRecommendations(results, metadata)
                     }
 
                     val statsMap = CleanupCategory.entries.associateWith { cat ->

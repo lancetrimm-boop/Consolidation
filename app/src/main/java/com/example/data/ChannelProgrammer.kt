@@ -137,7 +137,7 @@ class RediscoverLaneStrategy : LaneStrategy {
 
         // Pool A: Unseen & Low-Exposure Candidates (Novelty Discovery)
         val poolA = pool.map { item ->
-            val exp = context.decayedExposureMap[item.id] ?: item.getDecayedExposure(context.currentTimeMs)
+            val exp = context.decayedExposureMap[item.id] ?: (context.exposureMap[item.id]?.toFloat() ?: item.getDecayedExposure(context.currentTimeMs))
             val skips = skipCounts[item.id] ?: 0
             val totalExp = exp + skips.toFloat()
             val score = 1.0f / (1.0f + totalExp)
@@ -193,7 +193,7 @@ class FavoritesLaneStrategy : LaneStrategy {
 
         return favorites.map { item ->
             val rawExp = context.exposureMap[item.id] ?: 0
-            val exp = (context.decayedExposureMap[item.id] ?: item.getDecayedExposure(context.currentTimeMs)) + (skipCounts[item.id] ?: 0).toFloat() + (context.sessionExposures[item.id] ?: 0).toFloat()
+            val exp = (context.decayedExposureMap[item.id] ?: (context.exposureMap[item.id]?.toFloat() ?: item.getDecayedExposure(context.currentTimeMs))) + (skipCounts[item.id] ?: 0).toFloat() + (context.sessionExposures[item.id] ?: 0).toFloat()
             val score = if (rawExp == 0) 3.0f else (2.5f - (exp * 0.10f)).coerceAtMost(2.5f)
             item to score
         }.sortedWith(
@@ -215,7 +215,7 @@ class MoodLaneStrategy : LaneStrategy {
         val skipCounts = context.skipEvents.groupingBy { it.mediaId }.eachCount()
 
         return pool.map { item ->
-            val exp = (context.decayedExposureMap[item.id] ?: item.getDecayedExposure(context.currentTimeMs)) + (skipCounts[item.id] ?: 0).toFloat() + (context.sessionExposures[item.id] ?: 0).toFloat()
+            val exp = (context.decayedExposureMap[item.id] ?: (context.exposureMap[item.id]?.toFloat() ?: item.getDecayedExposure(context.currentTimeMs))) + (skipCounts[item.id] ?: 0).toFloat() + (context.sessionExposures[item.id] ?: 0).toFloat()
             var score = 0.5f + (item.rating / 10.0f) - (exp * 0.08f)
             if (nudge.contains("energetic") && (item.genre.contains("Action", ignoreCase = true) || item.title.contains("Dynamic", ignoreCase = true))) {
                 score += 0.3f
@@ -244,7 +244,7 @@ class ContinueLaneStrategy : LaneStrategy {
 
         val result = mutableListOf<MediaItem>()
         serializedGroups.forEach { (_, group) ->
-            val oldestUnwatched = group.filter { ((context.decayedExposureMap[it.id] ?: it.getDecayedExposure(context.currentTimeMs)) + (context.sessionExposures[it.id] ?: 0).toFloat()) < 0.1f }
+            val oldestUnwatched = group.filter { ((context.decayedExposureMap[it.id] ?: (context.exposureMap[it.id]?.toFloat() ?: it.getDecayedExposure(context.currentTimeMs))) + (context.sessionExposures[it.id] ?: 0).toFloat()) < 0.1f }
                 .sortedWith(compareBy<MediaItem> { it.selectionReason ?: "" }.thenBy { it.id })
                 .firstOrNull() ?: group.sortedWith(compareBy<MediaItem> { it.selectionReason ?: "" }.thenBy { it.id }).firstOrNull()
             if (oldestUnwatched != null) {
@@ -264,7 +264,7 @@ class NoveltyLaneStrategy : LaneStrategy {
         val skipCounts = context.skipEvents.groupingBy { it.mediaId }.eachCount()
 
         return pool.map { item ->
-            val exp = context.decayedExposureMap[item.id] ?: item.getDecayedExposure(context.currentTimeMs)
+            val exp = context.decayedExposureMap[item.id] ?: (context.exposureMap[item.id]?.toFloat() ?: item.getDecayedExposure(context.currentTimeMs))
             val skips = skipCounts[item.id] ?: 0
             val totalExp = exp + skips.toFloat()
             val score = 1.0f / (1.0f + totalExp)
@@ -339,7 +339,7 @@ class SearchSeededLaneStrategy : LaneStrategy {
         val skipCounts = context.skipEvents.groupingBy { it.mediaId }.eachCount()
 
         val scored = pool.map { item ->
-            val exp = (context.decayedExposureMap[item.id] ?: item.getDecayedExposure(context.currentTimeMs)) + (skipCounts[item.id] ?: 0).toFloat() + (context.sessionExposures[item.id] ?: 0).toFloat()
+            val exp = (context.decayedExposureMap[item.id] ?: (context.exposureMap[item.id]?.toFloat() ?: item.getDecayedExposure(context.currentTimeMs))) + (skipCounts[item.id] ?: 0).toFloat() + (context.sessionExposures[item.id] ?: 0).toFloat()
             var score = 0.5f - (exp * 0.08f)
             if (query.isNotEmpty()) {
                 if (item.title.lowercase().contains(query)) score += 0.4f

@@ -608,8 +608,9 @@ fun LibraryContent(
             ) {
                 if (displayItems.isEmpty()) {
                     val isLibraryEmpty = state.mediaItems.isEmpty()
+                    val isActivelyScanning = state.scanProgress.isScanning || (!state.admissionProgress.isAnalysisComplete && state.admissionProgress.totalScanned > 0)
 
-                    if (!state.admissionProgress.isAnalysisComplete && isLibraryEmpty) {
+                    if (isActivelyScanning && isLibraryEmpty) {
                         com.example.ui.components.LibraryScanningPlaceholder()
                     } else if (isSearchActive) {
                         EmptySearchStateView(

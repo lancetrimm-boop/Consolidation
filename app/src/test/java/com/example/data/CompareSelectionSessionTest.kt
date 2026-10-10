@@ -188,18 +188,21 @@ class CompareSelectionSessionTest {
 
         // Sort: LARGEST_FILES -> Pool should be [4, 3, 2, 1]
         repository.setCompareSort(CompareSortOption.LARGEST_FILES)
+        advanceUntilIdle()
         var top = repository.pairwiseDiagnostics.value.topCandidateIds
         assertEquals("4", top[0])
         assertEquals("3", top[1])
 
         // Sort: NEWEST -> Pool should be [4, 3, 2, 1]
         repository.setCompareSort(CompareSortOption.NEWEST)
+        advanceUntilIdle()
         top = repository.pairwiseDiagnostics.value.topCandidateIds
         assertEquals("4", top[0])
         assertEquals("3", top[1])
 
         // Sort: OLDEST -> Pool should be [1, 2, 3, 4]
         repository.setCompareSort(CompareSortOption.OLDEST)
+        advanceUntilIdle()
         top = repository.pairwiseDiagnostics.value.topCandidateIds
         assertEquals("1", top[0])
         assertEquals("2", top[1])
@@ -207,6 +210,7 @@ class CompareSelectionSessionTest {
         // Strategy: REDISCOVER -> Items user likes + interaction age bonus
         repository.setCompareStrategy(CompareStrategy.REDISCOVER)
         repository.setCompareSort(CompareSortOption.NEWEST)
+        advanceUntilIdle()
         top = repository.pairwiseDiagnostics.value.topCandidateIds
         // Item 1 has rating 5f (liked), interaction age bonus logic applies.
         assertEquals("1", top[0])
@@ -250,6 +254,7 @@ class CompareSelectionSessionTest {
         // 4 items = 6 pairs.
         repeat(6) {
             repository.skipCompareSelectionPair()
+            advanceUntilIdle()
         }
         
         assertTrue("Session should be complete", repository.compareSelectionSession.value.isComplete)
@@ -270,6 +275,7 @@ class CompareSelectionSessionTest {
         repository.deleteMediaItem("1")
         repository.deleteMediaItem("2")
         repository.deleteMediaItem("3")
+        advanceUntilIdle()
         
         assertTrue("Session should be complete after deletions", repository.compareSelectionSession.value.isComplete)
         assertEquals("Fewer than 2 eligible items remain.", repository.compareSelectionSession.value.completionReason)
@@ -287,6 +293,7 @@ class CompareSelectionSessionTest {
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
         
         repository.setCompareMediaType(CompareMediaTypeFilter.VIDEOS)
+        advanceUntilIdle()
         
         assertTrue("Session should be complete when filter leaves < 2 items", repository.compareSelectionSession.value.isComplete)
         assertEquals("Fewer than 2 eligible items remain.", repository.compareSelectionSession.value.completionReason)
@@ -325,10 +332,12 @@ class CompareSelectionSessionTest {
         
         repeat(50) {
             repository.recordCompareSelectionVote(repository.pairwiseState.value.optionA.id)
+            advanceUntilIdle()
         }
         
         // 51st vote
         repository.recordCompareSelectionVote(repository.pairwiseState.value.optionA.id)
+        advanceUntilIdle()
         
         assertTrue("Session should be complete after limit", repository.compareSelectionSession.value.isComplete)
         assertEquals("Session round limit reached.", repository.compareSelectionSession.value.completionReason)

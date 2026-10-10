@@ -334,10 +334,7 @@ fun ChannelMotionThumbnail(
     // Extract frames ONLY when visible. Convert to ImageBitmap immediately
     // so we never hold a recyclable Android Bitmap.
     LaunchedEffect(rememberKey, isVideo, isVisibleInViewport) {
-        if (!isVisibleInViewport || !isVideo || uri.isNullOrEmpty()) {
-            keyframes = emptyList()
-            return@LaunchedEffect
-        }
+        if (!isVisibleInViewport || !isVideo || uri.isNullOrEmpty()) return@LaunchedEffect
         val frameTimes = listOf(1_000_000L, 4_000_000L, 7_000_000L)
         val extracted = frameTimes.mapNotNull { timeUs ->
             MediaThumbnailFetcher.getFrameAtTime(context, uri, timeUs)

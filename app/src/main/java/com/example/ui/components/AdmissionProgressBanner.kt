@@ -20,7 +20,7 @@ fun AdmissionProgressBanner(
     progress: AdmissionProgress,
     modifier: Modifier = Modifier
 ) {
-    if (progress.isAnalysisComplete) return
+    if (progress.isAnalysisComplete || progress.totalScanned == 0) return
 
     Column(
         modifier = modifier

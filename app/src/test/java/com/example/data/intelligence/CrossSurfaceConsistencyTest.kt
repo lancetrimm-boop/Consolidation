@@ -26,6 +26,7 @@ class CrossSurfaceConsistencyTest {
         whenever(repository.getMediaItemById("item1")).thenReturn(item1)
         whenever(repository.getMediaItemById("item2")).thenReturn(item2)
         whenever(repository.isItemVisibleInLibrary(any())).thenReturn(true)
+        whenever(repository.isItemEligibleForCandidates(any())).thenReturn(true)
         whenever(repository.signatureStyleProfile).thenReturn(kotlinx.coroutines.flow.MutableStateFlow(SignatureStyleProfile(emptyList(), emptyList())))
 
         val router = mock(RetrievalRouter::class.java)

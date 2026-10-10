@@ -1,6 +1,7 @@
 package com.example.data
 
 import android.content.Context
+import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AuraDatabase
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -25,21 +26,23 @@ class MediaRepositorySavedTest {
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
     private lateinit var repository: MediaRepository
+    private lateinit var database: AuraDatabase
     private lateinit var context: Context
 
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        database = Room.inMemoryDatabaseBuilder(context, AuraDatabase::class.java).allowMainThreadQueries().build()
         repository = MediaRepository(testDispatcher)
-        repository.resetTestingState()
-        AuraDatabase.getInstance(context).close()
+        repository.setDatabaseForTesting(database)
     }
 
     @After
     fun tearDown() {
         try {
-            repository.getDatabase()?.close()
+            repository.close()
         } catch (_: Exception) {}
+        database.close()
     }
 
     private fun createMediaItem(id: String, title: String): MediaItem {
@@ -55,8 +58,7 @@ class MediaRepositorySavedTest {
 
     @Test
     fun testSaveMedia_CreatesSavedStateAndTimestamp() = testScope.runTest {
-        repository.initDatabase(context)
-        advanceUntilIdle()
+
 
         val item = createMediaItem("m1", "Media 1")
         repository.setMediaItemsForTesting(listOf(item))
@@ -75,8 +77,7 @@ class MediaRepositorySavedTest {
 
     @Test
     fun testRemoveMedia_RemovesSavedState_SafeForUnsaved() = testScope.runTest {
-        repository.initDatabase(context)
-        advanceUntilIdle()
+
 
         val item = createMediaItem("m1", "Media 1")
         repository.setMediaItemsForTesting(listOf(item))
@@ -100,8 +101,7 @@ class MediaRepositorySavedTest {
 
     @Test
     fun testToggleSaved_AlternatesState() = testScope.runTest {
-        repository.initDatabase(context)
-        advanceUntilIdle()
+
 
         val item = createMediaItem("m1", "Media 1")
         repository.setMediaItemsForTesting(listOf(item))
@@ -122,8 +122,7 @@ class MediaRepositorySavedTest {
 
     @Test
     fun testReactiveStateAndOrdering_NewestFirst() = testScope.runTest {
-        repository.initDatabase(context)
-        advanceUntilIdle()
+
 
         val item1 = createMediaItem("m1", "Media 1")
         val item2 = createMediaItem("m2", "Media 2")
@@ -154,8 +153,7 @@ class MediaRepositorySavedTest {
 
     @Test
     fun testMissingMedia_ToleratesAndExcludesNonExistentItems() = testScope.runTest {
-        repository.initDatabase(context)
-        advanceUntilIdle()
+
 
         // Save an ID that has no corresponding MediaItem in the library
         repository.saveMedia("ghost_id")
@@ -170,8 +168,7 @@ class MediaRepositorySavedTest {
 
     @Test
     fun testRecordMediaCompletion_RemovesFromSaved() = testScope.runTest {
-        repository.initDatabase(context)
-        advanceUntilIdle()
+
 
         val item = createMediaItem("m1", "Media 1")
         repository.setMediaItemsForTesting(listOf(item))
@@ -191,8 +188,7 @@ class MediaRepositorySavedTest {
 
     @Test
     fun testIncompletePlayback_PreservesSaved() = testScope.runTest {
-        repository.initDatabase(context)
-        advanceUntilIdle()
+
 
         val item = createMediaItem("m1", "Media 1")
         repository.setMediaItemsForTesting(listOf(item))
@@ -212,9 +208,6 @@ class MediaRepositorySavedTest {
 
     @Test
     fun testRepeatedCompletion_IsIdempotent() = testScope.runTest {
-        repository.initDatabase(context)
-        advanceUntilIdle()
-
         val item = createMediaItem("m1", "Media 1")
         repository.setMediaItemsForTesting(listOf(item))
         advanceUntilIdle()

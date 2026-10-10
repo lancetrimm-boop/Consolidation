@@ -39,6 +39,8 @@ class IntelligenceRetrofitWiringTest {
         whenever(repository.intelligenceStats).thenReturn(MutableStateFlow(IntelligenceStats()))
         whenever(repository.creatorProfiles).thenReturn(MutableStateFlow(emptyMap()))
         whenever(repository.signatureStyleProfile).thenReturn(MutableStateFlow(SignatureStyleProfile(emptyList(), emptyList())))
+        whenever(repository.isItemVisibleInLibrary(any())).thenReturn(true)
+        whenever(repository.isItemEligibleForCandidates(any())).thenReturn(true)
         
         router = RetrievalRouter(lexicalRetriever, semanticProvider, visualProvider)
         core = AuraIntelligenceCore(repository, router, dispatcher = testDispatcher)
@@ -103,7 +105,10 @@ class IntelligenceRetrofitWiringTest {
         val item1 = createMediaItem("1")
         val item2 = createMediaItem("2")
         
-        whenever(repository.mediaItems).thenReturn(MutableStateFlow(listOf(item1, item2)))
+        val items = listOf(item1, item2)
+        whenever(repository.mediaItems).thenReturn(MutableStateFlow(items))
+        whenever(repository.candidateEligibleMediaItems).thenReturn(MutableStateFlow(items))
+        whenever(repository.visibleMediaItems).thenReturn(MutableStateFlow(items))
         whenever(repository.isItemVisibleInLibrary(any())).thenReturn(true)
 
         val request = IntelligenceRequest(
@@ -133,7 +138,10 @@ class IntelligenceRetrofitWiringTest {
     @Test
     fun testDiscoverSortWiring_PopulatesSecondaryScore() = runTest {
         val item1 = createMediaItem("1")
-        whenever(repository.mediaItems).thenReturn(MutableStateFlow(listOf(item1)))
+        val items = listOf(item1)
+        whenever(repository.mediaItems).thenReturn(MutableStateFlow(items))
+        whenever(repository.candidateEligibleMediaItems).thenReturn(MutableStateFlow(items))
+        whenever(repository.visibleMediaItems).thenReturn(MutableStateFlow(items))
         whenever(repository.isItemVisibleInLibrary(any())).thenReturn(true)
 
         val request = IntelligenceRequest(

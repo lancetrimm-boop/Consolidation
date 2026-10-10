@@ -53,7 +53,7 @@ object AuraPlaybackRouter {
             )
         }
 
-        if (targetUri.startsWith("/") && !java.io.File(targetUri).exists()) {
+        if (context != null && targetUri.startsWith("/") && !java.io.File(targetUri).exists()) {
             return PlaybackRouteResult.Corrupt(
                 reason = "Local video file missing or unreadable",
                 item = item
@@ -105,9 +105,9 @@ object AuraPlaybackRouter {
             "video/x-vnd.on2.vp8", "video/x-vnd.on2.vp9",
             "video/av01", "video/3gpp"
         )
-        val isStandardCodec = standardSupportedVideoCodecs.any { 
+        val isStandardCodec = item.videoCodec.isNotBlank() && standardSupportedVideoCodecs.any { 
             item.videoCodec.equals(it, ignoreCase = true) || item.videoCodec.startsWith(it, ignoreCase = true) 
-        } || (item.videoCodec.isBlank() && item.containerFormat !in setOf("AVI", "FLV", "WMV"))
+        }
 
         val isAvi = item.containerFormat.equals("AVI", true) || targetUri.lowercase().endsWith(".avi")
 

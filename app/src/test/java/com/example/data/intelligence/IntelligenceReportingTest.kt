@@ -48,7 +48,7 @@ class IntelligenceReportingTest {
         val dna = TasteDNA(vibrancy = 0.8, learnedVibrancy = 0.8, isFineTuningEnabled = true) 
         
         // Add some media and pairwise outcomes
-        val item = MediaEntity(id = "m1", title = "Test", mediaType = "PHOTO", playCount = 5, exposureCount = 10, moodTagsJson = "vibrant,dramatic")
+        val item = MediaEntity(id = "m1", title = "Test", mediaType = "PHOTO", playCount = 5, exposureCount = 10, moodTagsJson = "vibrant,dramatic", compatibilityStatus = "PLAYABLE")
         database.mediaDao().insert(item)
         repository.setMediaItemsForTesting(listOf(item.toMediaItem()))
         
@@ -106,7 +106,8 @@ class IntelligenceReportingTest {
             moodTagsJson = "depth,lighting,contrast,dynamicRange,focus",
             isFavorite = true,
             playCount = 10,
-            imageUrl = "file://thumb.jpg"
+            imageUrl = "file://thumb.jpg",
+            compatibilityStatus = "PLAYABLE"
         )
         database.mediaDao().insert(cinematicItem)
         
@@ -116,7 +117,8 @@ class IntelligenceReportingTest {
             title = "Simple Shot",
             mediaType = "PHOTO",
             moodTagsJson = "simple,flat",
-            isFavorite = false
+            isFavorite = false,
+            compatibilityStatus = "PLAYABLE"
         )
         database.mediaDao().insert(unrelatedItem)
 
@@ -149,7 +151,7 @@ class IntelligenceReportingTest {
         )
         
         // Add evidence so it's not filtered for lack of media
-        val item = MediaEntity(id = "min1", title = "Minimal", mediaType = "PHOTO", moodTagsJson = "minimalism,symmetry,harmony,density,complexity", imageUrl = "file://min.jpg")
+        val item = MediaEntity(id = "min1", title = "Minimal", mediaType = "PHOTO", moodTagsJson = "minimalism,symmetry,harmony,density,complexity", imageUrl = "file://min.jpg", compatibilityStatus = "PLAYABLE")
         database.mediaDao().insert(item)
         repository.setMediaItemsForTesting(listOf(item.toMediaItem()))
 
@@ -181,7 +183,8 @@ class IntelligenceReportingTest {
             mediaType = "PHOTO",
             moodTagsJson = "vibrancy,depth,lighting,contrast,dynamicRange,focus,saturation,motion,mood",
             playCount = 10,
-            imageUrl = "file://perfect.jpg"
+            imageUrl = "file://perfect.jpg",
+            compatibilityStatus = "PLAYABLE"
         )
         database.mediaDao().insert(perfectMatch)
         
@@ -191,14 +194,15 @@ class IntelligenceReportingTest {
             mediaType = "PHOTO",
             moodTagsJson = "vibrancy",
             playCount = 1,
-            imageUrl = "file://weak.jpg"
+            imageUrl = "file://weak.jpg",
+            compatibilityStatus = "PLAYABLE"
         )
         database.mediaDao().insert(weakMatch)
 
         // Let's test with library size >= 6 to ensure deduplication.
         val others = mutableListOf<MediaEntity>()
         repeat(5) { i ->
-            val other = MediaEntity(id = "other_$i", title = "Other", mediaType = "PHOTO", imageUrl = "file://other_$i.jpg")
+            val other = MediaEntity(id = "other_$i", title = "Other", mediaType = "PHOTO", imageUrl = "file://other_$i.jpg", compatibilityStatus = "PLAYABLE")
             database.mediaDao().insert(other)
             others.add(other)
         }

@@ -98,9 +98,8 @@ class ChannelViewModel(
 
                 val usedPreviewIds = mutableSetOf<String>()
 
-                val states = allChannels.mapNotNull { channel ->
+                val states = allChannels.map { channel ->
                     val programmed = programmer.programChannel(channel, context, limit = 20)
-                    if (programmed.isEmpty()) return@mapNotNull null
 
                     val candidate = if (channel.channelKind == ChannelKind.SEARCH_SEEDED && channel.referenceMediaIds.isNotEmpty()) {
                         val firstRefId = channel.referenceMediaIds.first()
@@ -116,9 +115,7 @@ class ChannelViewModel(
 
                     val adjustedFullItems = if (candidate != null) {
                         listOf(candidate) + programmed.filter { it.id != candidate.id }
-                    } else emptyList()
-
-                    if (adjustedFullItems.isEmpty()) return@mapNotNull null
+                    } else programmed
 
                     ChannelPreviewState(
                         channel = channel,
@@ -240,9 +237,8 @@ class ChannelViewModel(
 
                 val usedPreviewIds = mutableSetOf<String>()
 
-                val states = allChannels.mapNotNull { channel ->
+                val states = allChannels.map { channel ->
                     val programmed = programmer.programChannel(channel, context, limit = 20)
-                    if (programmed.isEmpty()) return@mapNotNull null
 
                     val candidate = if (channel.channelKind == ChannelKind.SEARCH_SEEDED && channel.referenceMediaIds.isNotEmpty()) {
                         val firstRefId = channel.referenceMediaIds.first()
@@ -258,9 +254,7 @@ class ChannelViewModel(
 
                     val adjustedFullItems = if (candidate != null) {
                         listOf(candidate) + programmed.filter { it.id != candidate.id }
-                    } else emptyList()
-
-                    if (adjustedFullItems.isEmpty()) return@mapNotNull null
+                    } else programmed
 
                     ChannelPreviewState(
                         channel = channel,

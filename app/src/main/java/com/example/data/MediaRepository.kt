@@ -167,12 +167,9 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
     }
     
-    fun isItemEligibleForCandidates(item: MediaItem): Boolean {
-        if (item.compatibilityStatus == CompatibilityStatus.ANALYSIS_PENDING || 
-            item.compatibilityStatus == CompatibilityStatus.UNTESTED) {
-            return false
-        }
-        return when (item.compatibilityStatus) {
+    open fun isItemEligibleForCandidates(item: MediaItem): Boolean {
+        if (item.isDeleted) return false
+        return when (getEffectiveCompatibilityStatus(item)) {
             CompatibilityStatus.PLAYABLE,
             CompatibilityStatus.PLAYABLE_SOFTWARE_DECODE -> true
             else -> false
@@ -379,7 +376,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         if (engine != null && engine.isSemanticReady()) {
             try {
                 val res = engine.search(searchRequest, HybridSearchConfig(topK = 100))
-                if (res.isSuccess) {
+                if (res.isSuccess && res.candidates.isNotEmpty()) {
                     val map = inputItems.associateBy { it.id }
                     return res.candidates.mapNotNull { map[it.mediaId] }
                         .filter { matchesFilterType(it, filterType) && isItemVisibleInLibrary(it) }
@@ -412,7 +409,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     private val latestSortedFullItemsFlow: StateFlow<List<MediaItem>> = combine(
         visibleMediaItems, _tasteDNA, _preferenceProfile, _libraryFilter, _activeSortCategory,
         _selectedStandardSort, _selectedIntelligentSort,
-        _librarySearchRequest.debounce { if (it is SearchRequest.Visual || it is SearchRequest.MultiVisual || it is SearchRequest.Compound) 0L else 300L }.distinctUntilChanged(),
+        _librarySearchRequest.debounce { if ((it is SearchRequest.Text && it.query.isBlank()) || it is SearchRequest.Visual || it is SearchRequest.MultiVisual || it is SearchRequest.Compound) 0L else 300L }.distinctUntilChanged(),
         _librarySessionSeed, _discoveryPolicy, _userIntent, _intelligenceStats, _creatorProfiles, _comparisonCounts, _aiState
     ) { args -> 
         val items = args[0] as List<MediaItem>; val dna = args[1] as TasteDNA; val profile = args[2] as TasteDNA.PreferenceProfile; val filter = args[3] as String; val category = args[4] as SortCategory; val standard = args[5] as StandardSortOption; val intelligent = args[6] as IntelligentSortOption; val search = args[7] as SearchRequest; val seed = args[8] as Long; val policy = args[9] as DiscoveryPolicy; val intent = args[10] as UserIntent; val stats = args[11] as IntelligenceStats; val creators = args[12] as Map<String, CreatorProfile>; val counts = args[13] as Map<String, Int>
@@ -752,11 +749,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             val context = applicationContext
             val eligible = items.filter { item ->
                 if (item.isDeleted || item.itemCount != null) return@filter false
-                isItemEligibleForCandidates(item) && isItemVisibleInLibrary(item) && (item.uriPath.isNotBlank() || item.imageUrl.isNotBlank())
+                isItemEligibleForCandidates(item) && isItemVisibleInLibrary(item) && (item.uriPath.isNotBlank() || item.imageUrl.isNotBlank() || item.id.isNotBlank())
             }
             if (eligible.size < 2) { 
                 _pairwiseState.value = PairwiseComparison("p_empty", _pairwiseState.value.roundNumber, 50, emptyMediaItem, emptyMediaItem)
                 preFetchedPair = null
+                if (session.isActive && !session.isComplete) {
+                    _compareSelectionSession.update { it.copy(isComplete = true, completionReason = "Fewer than 2 eligible items remain.") }
+                }
                 return@launch 
             }
 
@@ -790,6 +790,12 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     compareStrategy = _compareStrategy.value, 
                     compareSort = _compareSort.value,
                     inputItems = eligible
+                )
+                _pairwiseDiagnostics.value = PairwiseDiagnostics(
+                    totalEligibleMedia = eligible.size,
+                    top100CandidatePoolSize = top100.size,
+                    poolRefreshTimestamp = System.currentTimeMillis(),
+                    topCandidateIds = top100.map { it.first.id }
                 )
                 val discoveryState = getDiscoveryStateMemoized(items)
                 val rawPair = RecommendationEngine.selectNextPairFromPool(
@@ -1254,10 +1260,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         if (currentPair.optionA.id.isNotEmpty() && currentPair.optionB.id.isNotEmpty()) {
             if (_compareSelectionSession.value.isActive) {
                 _compareSelectionSession.update {
+                    val nextRound = it.roundNumber + 1
+                    val isLimit = nextRound > it.maxRounds
                     it.copy(
-                        roundNumber = it.roundNumber + 1,
+                        roundNumber = nextRound,
                         skips = it.skips + 1,
-                        comparedPairIds = it.comparedPairIds + (currentPair.optionA.id to currentPair.optionB.id)
+                        comparedPairIds = it.comparedPairIds + (currentPair.optionA.id to currentPair.optionB.id),
+                        isComplete = it.isComplete || isLimit,
+                        completionReason = if (isLimit) "Session round limit reached." else it.completionReason
                     )
                 }
             }
@@ -1324,25 +1334,11 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         policy: DiscoveryPolicy = _discoveryPolicy.value, intent: UserIntent = _userIntent.value, stats: IntelligenceStats = _intelligenceStats.value, creatorProfiles: Map<String, CreatorProfile> = _creatorProfiles.value,
         comparisonCounts: Map<String, Int> = _comparisonCounts.value
     ): List<MediaItem> {
-        val request = IntelligenceRequest(mode = IntelligenceMode.SORT, 
-            sortOption = if (sortCategory == SortCategory.STANDARD) standardSort.name else intelligentSort.name,
-            filterType = filterType, tasteDNA = tasteDNA, profile = profile, stats = stats, creatorProfiles = creatorProfiles, seed = sessionSeed, 
-            policy = policy, intent = intent, comparisonCounts = comparisonCounts, poolOverride = inputItems, limit = 10000)
-        
-        val response = try {
-            intelligenceCore?.processRequest(request)
-        } catch (e: Exception) {
-            null
-        }
-        
-        if (response?.isSuccess == true) {
-            if (sortCategory == SortCategory.INTELLIGENT) _signatureStyleProfile.value = SignatureStyleProvider.calculateStyleProfile(tasteDNA, inputItems)
-            return response.candidates.map { it.item }
-        }
+        if (inputItems.isEmpty()) return emptyList()
 
-        val filtered = inputItems.filter { matchesFilterType(it, filterType) && isItemVisibleInLibrary(it) }
-        return if (sortCategory == SortCategory.STANDARD) {
-            when (standardSort) {
+        if (sortCategory == SortCategory.STANDARD) {
+            val filtered = inputItems.filter { matchesFilterType(it, filterType) && isItemVisibleInLibrary(it) }
+            return when (standardSort) {
                 StandardSortOption.TITLE_ASC -> filtered.sortedBy { it.title }
                 StandardSortOption.TITLE_DESC -> filtered.sortedByDescending { it.title }
                 StandardSortOption.NEWEST_FIRST -> filtered.sortedByDescending { it.dateAdded }
@@ -1355,9 +1351,26 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 StandardSortOption.RECENTLY_PLAYED -> filtered.sortedByDescending { it.lastViewedTimestamp ?: 0L }
                 StandardSortOption.RANDOM -> filtered.shuffled(java.util.Random(sessionSeed))
             }
-        } else {
-            filtered
         }
+
+        val request = IntelligenceRequest(mode = IntelligenceMode.SORT, 
+            sortOption = intelligentSort.name,
+            filterType = filterType, tasteDNA = tasteDNA, profile = profile, stats = stats, creatorProfiles = creatorProfiles, seed = sessionSeed, 
+            policy = policy, intent = intent, comparisonCounts = comparisonCounts, poolOverride = inputItems, limit = 10000)
+        
+        val response = try {
+            intelligenceCore?.processRequest(request)
+        } catch (e: Exception) {
+            null
+        }
+        
+        if (response?.isSuccess == true) {
+            _signatureStyleProfile.value = SignatureStyleProvider.calculateStyleProfile(tasteDNA, inputItems)
+            return response.candidates.map { it.item }
+        }
+
+        val filtered = inputItems.filter { matchesFilterType(it, filterType) && isItemVisibleInLibrary(it) }
+        return filtered
     }
 
     private fun isUriAccessible(context: Context, uriString: String): Boolean {
@@ -1380,24 +1393,21 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
     private fun matchesFilterType(item: MediaItem, filterType: String): Boolean = when (filterType.uppercase()) { "PHOTO" -> item.mediaType.uppercase() in listOf("PHOTO", "IMAGE"); "VIDEO" -> item.mediaType.uppercase() in listOf("VIDEO", "MOVIE"); else -> true }
 
-    fun isItemVisibleInLibrary(item: MediaItem): Boolean {
+    fun getEffectiveCompatibilityStatus(item: MediaItem): CompatibilityStatus {
+        if (item.isDeleted) return CompatibilityStatus.DELETED
+        if (item.conversionStatus == ConversionStatus.CONVERTED && !item.convertedUri.isNullOrBlank()) {
+            return CompatibilityStatus.PLAYABLE
+        }
+        return item.compatibilityStatus
+    }
+
+    open fun isItemVisibleInLibrary(item: MediaItem): Boolean {
         if (item.isDeleted) return false
-        return when (item.compatibilityStatus) {
+        return when (getEffectiveCompatibilityStatus(item)) {
             CompatibilityStatus.PLAYABLE,
             CompatibilityStatus.PLAYABLE_SOFTWARE_DECODE,
             CompatibilityStatus.THUMBNAIL_FAILED -> true
-
-            CompatibilityStatus.ANALYSIS_PENDING,
-            CompatibilityStatus.ANALYSIS_IN_PROGRESS,
-            CompatibilityStatus.ANALYSIS_FAILED,
-            CompatibilityStatus.UNTESTED,
-            CompatibilityStatus.UNSUPPORTED,
-            CompatibilityStatus.CORRUPT,
-            CompatibilityStatus.UNREADABLE,
-            CompatibilityStatus.PLAYABLE_AFTER_CONVERSION,
-            CompatibilityStatus.NEEDS_TRANSCODE,
-            CompatibilityStatus.DELETED,
-            CompatibilityStatus.REPLACED -> false
+            else -> false
         }
     }
 
@@ -1422,16 +1432,19 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     suspend fun scanLocalMedia(context: Context, isManual: Boolean = false): Boolean = scanLocalMediaInternal(context, isManual)
     
     private suspend fun scanLocalMediaInternal(context: Context, isManual: Boolean = false): Boolean {
+        val scanId = System.currentTimeMillis()
         if (!hasStoragePermission(context)) {
             _scanProgress.value = ScanProgressState(
+                scanSessionId = scanId,
                 isScanning = false,
                 isComplete = false,
                 isManual = isManual,
                 errorCode = ScanError.PERMISSION_DENIED
             )
+            presentationMediaStore.markAnalysisComplete()
             return false
         }
-        _scanProgress.value = ScanProgressState(isScanning = true, isManual = isManual)
+        _scanProgress.value = ScanProgressState(scanSessionId = scanId, isScanning = true, isManual = isManual)
         try {
             val res = discoverLocalMedia(context)
             if (res is DiscoveryResult.Complete) {
@@ -1440,6 +1453,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 
                 // Complete scan progress immediately so newly discovered media appears instantly in UI
                 _scanProgress.value = ScanProgressState(
+                    scanSessionId = scanId,
                     isScanning = false,
                     isComplete = true,
                     isManual = isManual,
@@ -1448,14 +1462,20 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 
                 // Perform background intelligence/visual enrichment asynchronously (Discover -> Persist -> Display -> Enrich)
                 scope.launch(dispatcher) {
-                    processPendingMedia(context, System.currentTimeMillis(), res.scannedVolumes, isManual)
+                    processPendingMedia(context, scanId, res.scannedVolumes, isManual)
                 }
             } else {
-                _scanProgress.value = ScanProgressState(isScanning = false, isComplete = true, isManual = isManual)
+                _scanProgress.value = ScanProgressState(
+                    scanSessionId = scanId,
+                    isScanning = false,
+                    isComplete = true,
+                    isManual = isManual
+                )
             }
             return true
         } catch (e: Exception) {
             _scanProgress.value = ScanProgressState(
+                scanSessionId = scanId,
                 isScanning = false,
                 isComplete = false,
                 isManual = isManual,
@@ -1474,18 +1494,47 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             // Query Videos
             context.contentResolver.query(
                 MediaStore.Video.Media.getContentUri(vol),
-                arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.TITLE, MediaStore.Video.Media.SIZE),
+                arrayOf(
+                    MediaStore.Video.Media._ID,
+                    MediaStore.Video.Media.TITLE,
+                    MediaStore.Video.Media.SIZE,
+                    MediaStore.Video.Media.DURATION,
+                    MediaStore.Video.Media.DATE_ADDED,
+                    MediaStore.Video.Media.DATE_MODIFIED
+                ),
                 null, null, null
             )?.use { cursor ->
+                val idCol = cursor.getColumnIndex(MediaStore.Video.Media._ID)
+                val titleCol = cursor.getColumnIndex(MediaStore.Video.Media.TITLE)
+                val sizeCol = cursor.getColumnIndex(MediaStore.Video.Media.SIZE)
+                val durCol = cursor.getColumnIndex(MediaStore.Video.Media.DURATION)
+                val addCol = cursor.getColumnIndex(MediaStore.Video.Media.DATE_ADDED)
+                val modCol = cursor.getColumnIndex(MediaStore.Video.Media.DATE_MODIFIED)
+
                 while (cursor.moveToNext()) {
-                    val id = cursor.getLong(0)
+                    val id = cursor.getLong(if (idCol >= 0) idCol else 0)
+                    val title = (if (titleCol >= 0) cursor.getString(titleCol) else null) ?: "Video"
+                    val size = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L
+                    val durationMs = if (durCol >= 0) cursor.getLong(durCol) else 0L
+                    val dateAdded = (if (addCol >= 0) cursor.getLong(addCol) else 0L) * 1000
+                    val dateModified = (if (modCol >= 0) cursor.getLong(modCol) else 0L) * 1000
+                    val uriPath = ContentUris.withAppendedId(MediaStore.Video.Media.getContentUri(vol), id).toString()
+                    val minutes = (durationMs / 1000) / 60
+                    val seconds = (durationMs / 1000) % 60
+                    val durationStr = if (minutes > 0) "${minutes}m ${seconds}s" else "${seconds}s"
+
                     entities.add(
                         MediaEntity(
                             id = "local_vid_$id",
-                            title = cursor.getString(1) ?: "Video",
+                            title = title,
                             mediaType = "VIDEO",
-                            uriPath = ContentUris.withAppendedId(MediaStore.Video.Media.getContentUri(vol), id).toString(),
-                            sizeBytes = cursor.getLong(2),
+                            duration = durationStr,
+                            durationMs = durationMs,
+                            uriPath = uriPath,
+                            imageUrl = uriPath,
+                            sizeBytes = size,
+                            dateAdded = if (dateAdded > 0) dateAdded else System.currentTimeMillis(),
+                            dateModified = dateModified,
                             compatibilityStatus = CompatibilityStatus.ANALYSIS_PENDING.name
                         )
                     )
@@ -1495,19 +1544,44 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             // Query Images
             context.contentResolver.query(
                 MediaStore.Images.Media.getContentUri(vol),
-                arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.TITLE, MediaStore.Images.Media.SIZE),
+                arrayOf(
+                    MediaStore.Images.Media._ID,
+                    MediaStore.Images.Media.TITLE,
+                    MediaStore.Images.Media.SIZE,
+                    MediaStore.Images.Media.DATE_ADDED,
+                    MediaStore.Images.Media.DATE_MODIFIED
+                ),
                 null, null, null
             )?.use { cursor ->
+                val idCol = cursor.getColumnIndex(MediaStore.Images.Media._ID)
+                val titleCol = cursor.getColumnIndex(MediaStore.Images.Media.TITLE)
+                val sizeCol = cursor.getColumnIndex(MediaStore.Images.Media.SIZE)
+                val addCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_ADDED)
+                val modCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_MODIFIED)
+
                 while (cursor.moveToNext()) {
-                    val id = cursor.getLong(0)
+                    val id = cursor.getLong(if (idCol >= 0) idCol else 0)
+                    val title = (if (titleCol >= 0) cursor.getString(titleCol) else null) ?: "Photo"
+                    val size = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L
+                    val dateAdded = (if (addCol >= 0) cursor.getLong(addCol) else 0L) * 1000
+                    val dateModified = (if (modCol >= 0) cursor.getLong(modCol) else 0L) * 1000
+                    val uriPath = ContentUris.withAppendedId(MediaStore.Images.Media.getContentUri(vol), id).toString()
+                    val isSnapshot = title.contains("Aura_Frame_") || title.contains("Snapshot") || title.contains("Aura Frame")
+
                     entities.add(
                         MediaEntity(
                             id = "local_img_$id",
-                            title = cursor.getString(1) ?: "Photo",
+                            title = title,
                             mediaType = "PHOTO",
-                            uriPath = ContentUris.withAppendedId(MediaStore.Images.Media.getContentUri(vol), id).toString(),
-                            sizeBytes = cursor.getLong(2),
-                            compatibilityStatus = CompatibilityStatus.ANALYSIS_PENDING.name
+                            genre = if (isSnapshot) "User Screenshots" else "Media",
+                            category = if (isSnapshot) "User Media" else "For You",
+                            moodTagsJson = if (isSnapshot) "User Media,Snapshot,Photo" else "",
+                            uriPath = uriPath,
+                            imageUrl = uriPath,
+                            sizeBytes = size,
+                            dateAdded = if (dateAdded > 0) dateAdded else System.currentTimeMillis(),
+                            dateModified = dateModified,
+                            compatibilityStatus = CompatibilityStatus.PLAYABLE.name
                         )
                     )
                     ids.add("local_img_$id")
@@ -1519,23 +1593,63 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     
     internal suspend fun processPendingMedia(context: Context, scanId: Long, volumes: Set<String>, isManual: Boolean = false) { 
         val pending = database?.mediaDao()?.getPendingAnalysis() ?: emptyList() 
+        val totalCount = _mediaItems.value.size
+        presentationMediaStore.updateProgress(
+            totalScanned = totalCount,
+            totalAdmitted = visibleMediaItems.value.size,
+            isAnalysisComplete = pending.isEmpty()
+        )
         pending.forEach { entity -> 
             val report = AuraMediaCompatibilityEngine.analyzeMedia(context, entity.uriPath, entity.mediaType) 
+            val updatedEntity = entity.copy(
+                compatibilityStatus = report.status.name,
+                containerFormat = report.containerFormat,
+                videoCodec = report.videoCodec,
+                audioCodec = report.audioCodec,
+                width = report.width,
+                height = report.height,
+                durationMs = if (report.durationMs > 0) report.durationMs else entity.durationMs,
+                sizeBytes = if (report.sizeBytes > 0) report.sizeBytes else entity.sizeBytes,
+                compatibilityReason = report.compatibilityReason,
+                conversionStatus = report.conversionStatus.name,
+                convertedUri = report.convertedUri ?: "",
+                lastCompatibilityCheckTimestamp = System.currentTimeMillis()
+            )
             updateMediaItemsState { list ->
-                list.map { if (it.id == entity.id) it.copy(compatibilityStatus = report.status, containerFormat = report.containerFormat, videoCodec = report.videoCodec, audioCodec = report.audioCodec) else it }
+                list.map { if (it.id == entity.id) updatedEntity.toMediaItem() else it }
             }
-            database?.mediaDao()?.update(entity.copy(compatibilityStatus = report.status.name, containerFormat = report.containerFormat)) 
+            database?.mediaDao()?.update(updatedEntity) 
+            presentationMediaStore.updateProgress(
+                totalScanned = totalCount,
+                totalAdmitted = visibleMediaItems.value.size,
+                isAnalysisComplete = false
+            )
         } 
+        presentationMediaStore.markAnalysisComplete()
         backfillSemantics()
     }
     internal suspend fun reconcileExistingMedia(context: Context) { 
         database?.mediaDao()?.getAllMediaSync()?.forEach { entity -> 
             if (entity.compatibilityStatus == "ANALYSIS_PENDING" || entity.compatibilityStatus == "THUMBNAIL_FAILED") { 
                 val report = AuraMediaCompatibilityEngine.analyzeMedia(context, entity.uriPath, entity.mediaType) 
+                val updatedEntity = entity.copy(
+                    compatibilityStatus = report.status.name,
+                    containerFormat = report.containerFormat,
+                    videoCodec = report.videoCodec,
+                    audioCodec = report.audioCodec,
+                    width = report.width,
+                    height = report.height,
+                    durationMs = if (report.durationMs > 0) report.durationMs else entity.durationMs,
+                    sizeBytes = if (report.sizeBytes > 0) report.sizeBytes else entity.sizeBytes,
+                    compatibilityReason = report.compatibilityReason,
+                    conversionStatus = report.conversionStatus.name,
+                    convertedUri = report.convertedUri ?: "",
+                    lastCompatibilityCheckTimestamp = System.currentTimeMillis()
+                )
                 updateMediaItemsState { list ->
-                    list.map { if (it.id == entity.id) it.copy(compatibilityStatus = report.status, containerFormat = report.containerFormat, videoCodec = report.videoCodec, audioCodec = report.audioCodec) else it }
+                    list.map { if (it.id == entity.id) updatedEntity.toMediaItem() else it }
                 }
-                database?.mediaDao()?.update(entity.copy(compatibilityStatus = report.status.name)) 
+                database?.mediaDao()?.update(updatedEntity) 
             } 
         } 
     }
@@ -1664,13 +1778,36 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         Log.i("PAIRWISE_TRACE", "RECORD_COMPARISON_VOTE_START: chosenId=$chosenId optionA=${currentPair.optionA.id} optionB=${currentPair.optionB.id}")
         if (currentPair.optionA.id.isEmpty() || currentPair.optionB.id.isEmpty()) return
         
-        if (_compareSelectionSession.value.isActive) {
-            _compareSelectionSession.update { it.copy(roundNumber = it.roundNumber + 1, wins = if (chosenId == currentPair.optionA.id) it.wins + 1 else it.wins, 
-                losses = if (chosenId == currentPair.optionB.id) it.losses + 1 else it.losses, comparedPairIds = it.comparedPairIds + (currentPair.optionA.id to currentPair.optionB.id)) }
-        }
-        
         val idA = currentPair.optionA.id
         val idB = currentPair.optionB.id
+
+        val db = database
+        if (db != null) {
+            try {
+                runBlocking(dispatcher) {
+                    db.pairwiseDao().insertOutcome(PairwiseOutcomeEntity(optionAId = idA, optionBId = idB, chosenId = chosenId, roundNumber = currentPair.roundNumber))
+                }
+            } catch (e: Exception) {
+                Log.e("MediaRepository", "Failed to persist pairwise comparison vote", e)
+                return
+            }
+        }
+
+        if (_compareSelectionSession.value.isActive) {
+            _compareSelectionSession.update {
+                val nextRound = it.roundNumber + 1
+                val isLimit = nextRound > it.maxRounds
+                it.copy(
+                    roundNumber = nextRound,
+                    wins = if (chosenId == currentPair.optionA.id) it.wins + 1 else it.wins, 
+                    losses = if (chosenId == currentPair.optionB.id) it.losses + 1 else it.losses,
+                    comparedPairIds = it.comparedPairIds + (currentPair.optionA.id to currentPair.optionB.id),
+                    isComplete = it.isComplete || isLimit,
+                    completionReason = if (isLimit) "Session round limit reached." else it.completionReason
+                )
+            }
+        }
+        
         _comparisonCounts.update { current ->
             val cA = (current[idA] ?: 0) + 1
             val cB = (current[idB] ?: 0) + 1
@@ -1691,11 +1828,6 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 pairwiseWins[idB] = (pairwiseWins[idB] ?: 0) + 1
                 pairwiseLosses[idA] = (pairwiseLosses[idA] ?: 0) + 1
             }
-        }
-
-        scope.launch {
-            val db = database ?: return@launch
-            db.pairwiseDao().insertOutcome(PairwiseOutcomeEntity(optionAId = idA, optionBId = idB, chosenId = chosenId, roundNumber = currentPair.roundNumber))
         }
         
         val winner = if (chosenId == idA) currentPair.optionA else currentPair.optionB
@@ -1735,7 +1867,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         startDatabaseObservers(db)
     }
     fun setApplicationContextForTesting(context: Context) { applicationContext = context }
-    fun setIntelligenceCoreForTesting(core: AuraIntelligenceCore?) { intelligenceCore = core }
+    fun setIntelligenceCoreForTesting(core: AuraIntelligenceCore?) { 
+        intelligenceCore = core 
+        hybridSearchEngine = if (core != null) DefaultHybridSearchEngine(core) else null
+    }
     fun setComparisonCountForTesting(counts: Map<String, Int>) { _comparisonCounts.value = counts }
     fun setComparisonCountForTesting(mediaId: String, count: Int) { _comparisonCounts.update { it + (mediaId to count) } }
     suspend fun getLikeCount(mediaId: String): Int = getActualLikeCounts(listOf(mediaId))[mediaId] ?: 0

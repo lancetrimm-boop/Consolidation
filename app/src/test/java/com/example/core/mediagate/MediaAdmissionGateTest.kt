@@ -6,12 +6,15 @@ import com.example.core.mediamodel.TestStatus
 import com.example.data.mediastore.DefaultDiagnosticMediaStore
 import com.example.data.mediastore.DefaultPresentationMediaStore
 import com.example.data.mediastore.IneligibleMediaEntry
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MediaAdmissionGateTest {
 
     @Test
@@ -112,8 +115,10 @@ class MediaAdmissionGateTest {
         val collectJob = backgroundScope.launch {
             store.eligibleMedia.toList(emittedLists)
         }
+        runCurrent()
 
         store.batchRevoke(setOf("1", "2"), setOf(IneligibilityReason.MISSING))
+        runCurrent()
         collectJob.cancel()
 
         // Initial emission (2 items) + 1 update emission (empty list) = exactly 2 emissions total

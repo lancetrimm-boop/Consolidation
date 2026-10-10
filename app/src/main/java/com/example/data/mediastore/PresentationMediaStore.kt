@@ -23,6 +23,8 @@ interface PresentationMediaStore {
     fun batchAdmit(items: List<PresentationEligibleMedia>)
     fun revoke(id: String, reasons: Set<IneligibilityReason>)
     fun batchRevoke(ids: Set<String>, reasons: Set<IneligibilityReason>)
+    fun updateProgress(totalScanned: Int, totalAdmitted: Int, isAnalysisComplete: Boolean)
+    fun markAnalysisComplete()
 }
 
 class DefaultPresentationMediaStore : PresentationMediaStore {
@@ -70,8 +72,26 @@ class DefaultPresentationMediaStore : PresentationMediaStore {
         }
     }
 
+    override fun updateProgress(totalScanned: Int, totalAdmitted: Int, isAnalysisComplete: Boolean) {
+        _admissionProgress.value = AdmissionProgress(
+            totalScanned = totalScanned,
+            totalAdmitted = totalAdmitted,
+            isAnalysisComplete = isAnalysisComplete
+        )
+    }
+
+    override fun markAnalysisComplete() {
+        _admissionProgress.value = _admissionProgress.value.copy(
+            totalAdmitted = store.size,
+            isAnalysisComplete = true
+        )
+    }
+
     private fun updateFlow() {
         val sorted = store.values.sortedByDescending { it.dateAddedEpochMs }
         _eligibleMedia.value = sorted
+        _admissionProgress.value = _admissionProgress.value.copy(
+            totalAdmitted = store.size
+        )
     }
 }

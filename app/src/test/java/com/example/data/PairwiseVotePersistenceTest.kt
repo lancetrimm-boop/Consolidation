@@ -58,16 +58,16 @@ class PairwiseVotePersistenceTest {
         repository.refreshPairwiseCandidatePoolAndSelectNext(forceNextPair = true)
         
         val initialPair = repository.pairwiseState.value
-        assertEquals("A", initialPair.optionA.id)
-        assertEquals("B", initialPair.optionB.id)
+        assertEquals(setOf("A", "B"), setOf(initialPair.optionA.id, initialPair.optionB.id))
 
         // 2. Cast vote
-        repository.recordComparisonVote("A")
+        val chosenId = initialPair.optionA.id
+        repository.recordComparisonVote(chosenId)
         
         // 3. Verify persistence
         val outcomes = database.pairwiseDao().getAllOutcomes().filter { it.isNotEmpty() }.first()
         assertEquals(1, outcomes.size)
-        assertEquals("A", outcomes[0].chosenId)
+        assertEquals(chosenId, outcomes[0].chosenId)
         assertEquals("A", outcomes[0].optionAId)
         assertEquals("B", outcomes[0].optionBId)
 

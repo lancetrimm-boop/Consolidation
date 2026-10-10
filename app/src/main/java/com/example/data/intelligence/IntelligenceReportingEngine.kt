@@ -159,10 +159,11 @@ class IntelligenceReportingEngine(
         val items = repository.visibleMediaItems.value
         val styleProfile = SignatureStyleProvider.calculateStyleProfile(dna, items)
         val tasteClusters = styleProfile.activeStyles.filter { style ->
-            // AURA REPAIR: Filter out styles that have no valid visual evidence (Stage 7 Fix)
-            val thumb = style.representativeMedia.firstOrNull()?.imageUrl
-            !thumb.isNullOrBlank()
+            val rep = style.representativeMedia.firstOrNull()
+            rep != null && (rep.imageUrl.isNotBlank() || rep.uriPath.isNotBlank() || rep.id.isNotBlank())
         }.map { style ->
+            val rep = style.representativeMedia.first()
+            val thumb = rep.imageUrl.ifBlank { rep.uriPath }
             TasteClusterEvidence(
                 categoryId = style.anchor.id,
                 title = style.anchor.displayName,
@@ -172,9 +173,9 @@ class IntelligenceReportingEngine(
                 confidenceScore = style.confidence,
                 confidenceLabel = if (style.confidence > 0.7) "High" else "Moderate",
                 contributingTraits = style.anchor.dimensionTargets.keys.toList(),
-                representativeMediaId = style.representativeMedia.firstOrNull()?.id,
-                representativeMediaThumbnailUrl = style.representativeMedia.firstOrNull()?.imageUrl,
-                isVideo = style.representativeMedia.firstOrNull()?.mediaType == "VIDEO"
+                representativeMediaId = rep.id,
+                representativeMediaThumbnailUrl = thumb,
+                isVideo = rep.mediaType == "VIDEO"
             )
         }
 

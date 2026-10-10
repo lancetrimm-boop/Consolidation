@@ -162,7 +162,7 @@ class MeTVProgrammingEngine {
         
         val scoredItems = homogeneousPool.map { item ->
             val exp = exposureMap[item.id] ?: 0
-            val decayedExp = decayedExposureMap[item.id] ?: item.getDecayedExposure(currentTimeMs)
+            val decayedExp = decayedExposureMap[item.id] ?: (exposureMap[item.id]?.toFloat() ?: item.getDecayedExposure(currentTimeMs))
             val skips = skipCountsByMedia[item.id] ?: 0
             val sessionExp = sessionExposures[item.id] ?: 0
             val effectiveExposure = decayedExp + skips.toFloat() + sessionExp.toFloat()

@@ -24,6 +24,7 @@ class FavoritesRankingConsolidationTest {
         whenever(repository.intelligenceStats).thenReturn(MutableStateFlow(IntelligenceStats()))
         whenever(repository.creatorProfiles).thenReturn(MutableStateFlow(emptyMap()))
         whenever(repository.isItemVisibleInLibrary(any())).thenReturn(true)
+        whenever(repository.isItemEligibleForCandidates(any())).thenReturn(true)
     }
 
     private fun createItem(id: String, isFavorite: Boolean = true, durationMs: Long = 10000) = MediaItem(
@@ -47,6 +48,8 @@ class FavoritesRankingConsolidationTest {
             createItem("3", durationMs = 100000)
         )
         whenever(repository.mediaItems).thenReturn(MutableStateFlow(items))
+        whenever(repository.candidateEligibleMediaItems).thenReturn(MutableStateFlow(items))
+        whenever(repository.visibleMediaItems).thenReturn(MutableStateFlow(items))
         
         whenever(repository.getActualLikeCounts(any())).thenReturn(mapOf(
             "1" to 10,
@@ -78,6 +81,8 @@ class FavoritesRankingConsolidationTest {
             createItem("2").copy(viewCount = 10)
         )
         whenever(repository.mediaItems).thenReturn(MutableStateFlow(items))
+        whenever(repository.candidateEligibleMediaItems).thenReturn(MutableStateFlow(items))
+        whenever(repository.visibleMediaItems).thenReturn(MutableStateFlow(items))
         
         // Actual likes: Item 2 has more
         whenever(repository.getActualLikeCounts(any())).thenReturn(mapOf(
