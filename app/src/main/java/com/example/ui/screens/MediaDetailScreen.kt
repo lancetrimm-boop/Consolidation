@@ -199,7 +199,7 @@ fun MediaDetailScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var isControlsVisible by remember { mutableStateOf(true) }
-    var isPlaying by rememberSaveable { mutableStateOf(false) }
+    var isPlaying by rememberSaveable { mutableStateOf(true) }
     var wasPlayingBeforeRotation by rememberSaveable { mutableStateOf(false) }
     var isFirstLaunch by rememberSaveable { mutableStateOf(true) }
     var currentPositionMs by remember { mutableFloatStateOf(0f) }
@@ -278,10 +278,11 @@ fun MediaDetailScreen(
     var showEndOfChannelPrompt by remember(playlistState?.items, currentItemIndex) { mutableStateOf(false) }
 
     val slideshowDelaySec by repository.slideshowDelaySeconds.collectAsStateWithLifecycle()
-    val isPhotoPlaying = !isVideo && !showPlayerMenu && !showDeleteDialog
+    val isPhotoPlaying = !isVideo && !showPlayerMenu && !showDeleteDialog && isPlaying
 
     // Automatic Photo Slideshow advancement for Photo channel playback + Exposure tracking
     LaunchedEffect(activeItem.id, isPhotoPlaying, slideshowDelaySec, isVideo, isAtEndOfPlaylist) {
+        Log.d("PhotoPlayback", "LaunchedEffect triggered for ${activeItem.id}: isPhotoPlaying=$isPhotoPlaying, isPlaying=$isPlaying")
         if (isVideo || !isPhotoPlaying) return@LaunchedEffect
         val totalDelayMs = slideshowDelaySec.coerceIn(1, 10) * 1000L
         val startTime = System.currentTimeMillis()
@@ -389,9 +390,11 @@ fun MediaDetailScreen(
             repeatMode = if (repository.repeatMode) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
             addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
-                    isPlaying = playing
-                    if (playing) {
-                        consecutiveFailureCount = 0
+                    if (isVideo) {
+                        isPlaying = playing
+                        if (playing) {
+                            consecutiveFailureCount = 0
+                        }
                     }
                 }
                 
@@ -554,6 +557,12 @@ fun MediaDetailScreen(
         }
     }
 
+    LaunchedEffect(playbackSpeed, isVideo) {
+        if (isVideo) {
+            exoPlayer.playbackParameters = androidx.media3.common.PlaybackParameters(playbackSpeed)
+        }
+    }
+
     // Task 1: Keep Screen Awake ONLY during active playback
     DisposableEffect(isPlaying) {
         val activity = context as? Activity
@@ -699,59 +708,63 @@ fun MediaDetailScreen(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(activeItem.id) {
-                detectTapGestures(
-                    onTap = {
-                        isControlsVisible = !isControlsVisible
-                    },
-                    onDoubleTap = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        showDoubleTapHeart = true
-                        repository.recordLike(activeItem.id)
-                        repository.addToFavorites(activeItem.id)
-
-                        if (isVideo) {
-                            val positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
-                            val itemDur = if (activeItem.durationMs > 0L) activeItem.durationMs else exoPlayer.duration.coerceAtLeast(0L)
-                            repository.enqueueVisualLikeContext(
-                                mediaId = activeItem.id,
-                                uri = activeItem.uriPath,
-                                playbackPositionMs = positionMs,
-                                durationMs = itemDur
-                            )
-                        }
-                    },
-                    onLongPress = {
-                        captureAndSaveScreenshot(context, activeItem)
-                    }
-                )
-            }
-            .pointerInput(activeItem.id) {
-                detectDragGestures(
-                    onDragEnd = {
-                        if (kotlin.math.abs(offsetX) > kotlin.math.abs(offsetY)) {
-                            if (offsetX > 100) {
-                                onPrevious()
-                            } else if (offsetX < -100) {
-                                onNext()
-                            }
-                        } else {
-                            if (offsetY < -100) {
-                                showPlayerMenu = true
-                            }
-                        }
-                        offsetX = 0f
-                        offsetY = 0f
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        offsetX += dragAmount.x
-                        offsetY += dragAmount.y
-                    }
-                )
-            }
     ) {
-        // Media Viewing Content - Maximize Area
+        // Media Viewing Content & Gestures
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(activeItem.id) {
+                    detectTapGestures(
+                        onTap = {
+                            isControlsVisible = !isControlsVisible
+                        },
+                        onDoubleTap = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showDoubleTapHeart = true
+                            repository.recordLike(activeItem.id)
+                            repository.addToFavorites(activeItem.id)
+
+                            if (isVideo) {
+                                val positionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                                val itemDur = if (activeItem.durationMs > 0L) activeItem.durationMs else exoPlayer.duration.coerceAtLeast(0L)
+                                repository.enqueueVisualLikeContext(
+                                    mediaId = activeItem.id,
+                                    uri = activeItem.uriPath,
+                                    playbackPositionMs = positionMs,
+                                    durationMs = itemDur
+                                )
+                            }
+                        },
+                        onLongPress = {
+                            captureAndSaveScreenshot(context, activeItem)
+                        }
+                    )
+                }
+                .pointerInput(activeItem.id) {
+                    detectDragGestures(
+                        onDragEnd = {
+                            if (kotlin.math.abs(offsetX) > kotlin.math.abs(offsetY)) {
+                                if (offsetX > 100) {
+                                    onPrevious()
+                                } else if (offsetX < -100) {
+                                    onNext()
+                                }
+                            } else {
+                                if (offsetY < -100) {
+                                    showPlayerMenu = true
+                                }
+                            }
+                            offsetX = 0f
+                            offsetY = 0f
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            offsetX += dragAmount.x
+                            offsetY += dragAmount.y
+                        }
+                    )
+                }
+        ) {
         if (isVideo) {
             if (playbackRoute is com.example.compatibility.PlaybackRouteResult.Playable) {
                 AndroidView(
@@ -1009,6 +1022,7 @@ fun MediaDetailScreen(
                 showDoubleTapHeart = false
             }
         }
+        }
 
         // Overlay Controls (Auto-Hiding)
         AnimatedVisibility(
@@ -1100,7 +1114,38 @@ fun MediaDetailScreen(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     IconButton(
-                        onClick = { },
+                        onClick = {
+                            Log.d("CastDialog", "Cast button clicked in MediaDetailScreen")
+                            try {
+                                val fragmentActivity = context as? androidx.fragment.app.FragmentActivity
+                                Log.d("CastDialog", "fragmentActivity=$fragmentActivity")
+                                if (fragmentActivity != null) {
+                                    val dialogFragment = androidx.mediarouter.app.MediaRouteChooserDialogFragment()
+                                    val selector = try {
+                                        com.google.android.gms.cast.framework.CastContext.getSharedInstance(context.applicationContext).mergedSelector
+                                    } catch (e: Exception) {
+                                        Log.w("CastDialog", "CastContext not initialized, falling back to MediaRouteSelector", e)
+                                        androidx.mediarouter.media.MediaRouteSelector.Builder()
+                                            .addControlCategory(androidx.mediarouter.media.MediaControlIntent.CATEGORY_LIVE_VIDEO)
+                                            .addControlCategory(androidx.mediarouter.media.MediaControlIntent.CATEGORY_REMOTE_PLAYBACK)
+                                            .build()
+                                    }
+                                    Log.d("CastDialog", "selector=$selector")
+                                    if (selector != null) {
+                                        dialogFragment.routeSelector = selector
+                                        dialogFragment.show(fragmentActivity.supportFragmentManager, "MediaRouteChooserDialogFragment")
+                                        Log.d("CastDialog", "show dialog called")
+                                    } else {
+                                        Toast.makeText(context, "No Cast routes available", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Cast requires FragmentActivity", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Log.e("CastDialog", "Failed to open Cast chooser dialog", e)
+                                Toast.makeText(context, "Cast error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
                         modifier = Modifier
                             .size(40.dp)
                             .testTag("detail_cast_button")
@@ -1230,7 +1275,11 @@ fun MediaDetailScreen(
                                 .clip(CircleShape)
                                 .background(DiscoveryGradient)
                                 .clickable {
-                                    if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                    if (isVideo) {
+                                        if (isPlaying) exoPlayer.pause() else exoPlayer.play()
+                                    } else {
+                                        isPlaying = !isPlaying
+                                    }
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -1390,6 +1439,8 @@ fun MediaDetailScreen(
             isVisualSearchActive = activeReferences.isNotEmpty(),
             currentRating = currentRating,
             playbackSpeed = playbackSpeed,
+            slideshowDelaySec = slideshowDelaySec,
+            onSlideshowDelayChange = { sec -> repository.slideshowDelaySec = sec },
             isAbRepeatActive = isAbRepeatActive,
             abPointA = abPointA,
             abPointB = abPointB,

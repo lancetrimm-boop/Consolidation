@@ -91,6 +91,8 @@ fun SwipeMenuSheet(
     onGenerateClips: (MediaItem) -> Unit,
     isSaved: Boolean = false,
     onToggleSaved: (String) -> Unit = {},
+    slideshowDelaySec: Int = 4,
+    onSlideshowDelayChange: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -275,15 +277,15 @@ fun SwipeMenuSheet(
                             .clickable { onCaptureScreenshot() }
                     )
 
-                    // Playback Speed Selector
+                    // Playback / Slideshow Speed Selector
                     Box {
                         Text(
-                            text = "${playbackSpeed}x",
+                            text = if (isVideo) "${playbackSpeed}x" else "${slideshowDelaySec}s",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = AuraCrispWhite,
                             modifier = Modifier
-                                .testTag("playback_speed_button")
+                                .testTag(if (isVideo) "playback_speed_button" else "photo_duration_button")
                                 .clickable { showSpeedMenu = true }
                         )
 
@@ -292,20 +294,38 @@ fun SwipeMenuSheet(
                             onDismissRequest = { showSpeedMenu = false },
                             modifier = Modifier.background(AuraMidnight.copy(alpha = 0.95f))
                         ) {
-                            listOf(0.25f, 0.5f, 1.0f, 2.0f, 4.0f).forEach { speed ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "${speed}x ${if (playbackSpeed == speed) "✓" else ""}",
-                                            color = AuraCrispWhite,
-                                            fontWeight = if (playbackSpeed == speed) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    },
-                                    onClick = {
-                                        onPlaybackSpeedChange(speed)
-                                        showSpeedMenu = false
-                                    }
-                                )
+                            if (isVideo) {
+                                listOf(0.5f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { speed ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "${speed}x ${if (playbackSpeed == speed) "✓" else ""}",
+                                                color = AuraCrispWhite,
+                                                fontWeight = if (playbackSpeed == speed) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            onPlaybackSpeedChange(speed)
+                                            showSpeedMenu = false
+                                        }
+                                    )
+                                }
+                            } else {
+                                (3..15).forEach { sec ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = "${sec}s ${if (slideshowDelaySec == sec) "✓" else ""}",
+                                                color = AuraCrispWhite,
+                                                fontWeight = if (slideshowDelaySec == sec) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            onSlideshowDelayChange(sec)
+                                            showSpeedMenu = false
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

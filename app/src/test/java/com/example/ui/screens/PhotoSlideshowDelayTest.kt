@@ -45,35 +45,35 @@ class PhotoSlideshowDelayTest {
     }
 
     @Test
-    fun testSlideshowDelay_AcceptsMinimum1Second() {
-        repository.slideshowDelaySec = 1
-        assertEquals(1, repository.slideshowDelaySec)
-        assertEquals(1, repository.slideshowDelaySeconds.value)
+    fun testSlideshowDelay_AcceptsMinimum3Seconds() {
+        repository.slideshowDelaySec = 3
+        assertEquals(3, repository.slideshowDelaySec)
+        assertEquals(3, repository.slideshowDelaySeconds.value)
     }
 
     @Test
-    fun testSlideshowDelay_AcceptsMaximum10Seconds() {
-        repository.slideshowDelaySec = 10
-        assertEquals(10, repository.slideshowDelaySec)
-        assertEquals(10, repository.slideshowDelaySeconds.value)
+    fun testSlideshowDelay_AcceptsMaximum15Seconds() {
+        repository.slideshowDelaySec = 15
+        assertEquals(15, repository.slideshowDelaySec)
+        assertEquals(15, repository.slideshowDelaySeconds.value)
     }
 
     @Test
-    fun testSlideshowDelay_ClampsBelow1To1() {
+    fun testSlideshowDelay_ClampsBelow3To3() {
         repository.slideshowDelaySec = 0
-        assertEquals(1, repository.slideshowDelaySec)
+        assertEquals(3, repository.slideshowDelaySec)
 
         repository.slideshowDelaySec = -5
-        assertEquals(1, repository.slideshowDelaySec)
+        assertEquals(3, repository.slideshowDelaySec)
     }
 
     @Test
-    fun testSlideshowDelay_ClampsAbove10To10() {
-        repository.slideshowDelaySec = 15
-        assertEquals(10, repository.slideshowDelaySec)
+    fun testSlideshowDelay_ClampsAbove15To15() {
+        repository.slideshowDelaySec = 20
+        assertEquals(15, repository.slideshowDelaySec)
 
         repository.slideshowDelaySec = 100
-        assertEquals(10, repository.slideshowDelaySec)
+        assertEquals(15, repository.slideshowDelaySec)
     }
 
     @Test

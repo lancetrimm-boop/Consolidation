@@ -1,0 +1,4 @@
+- `[ ]` Fix photo slideshow pause control (respect `isPlaying`)
+- `[ ]` Add video playback speed controls (0.5x, 1.0x, 1.25x, 1.5x, 2.0x)
+- `[ ]` Wire up Cast button action to show MediaRouter route dialog
+- `[ ]` Build and verify on physical device

@@ -309,7 +309,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     var slideshowDelaySec: Int
         get() = _slideshowDelaySeconds.value
         set(value) {
-            val clamped = value.coerceIn(1, 10)
+            val clamped = value.coerceIn(3, 15)
             _slideshowDelaySeconds.value = clamped
             scope.launch {
                 try {
