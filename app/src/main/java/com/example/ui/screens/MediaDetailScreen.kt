@@ -18,8 +18,7 @@ import androidx.media3.common.PlaybackException
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.mediarouter.app.MediaRouteButton
-import com.google.android.gms.cast.framework.CastButtonFactory
+
 import com.example.data.AISkipEngine
 import com.example.data.ClipCandidate
 import com.example.data.ClipTelemetryService
@@ -481,17 +480,7 @@ fun MediaDetailScreen(
         }
     }
 
-    val castManager = remember(context, exoPlayer) { com.example.cast.AuraCastManager.getInstance(context, exoPlayer) }
-    val isCasting by castManager.isCasting.collectAsStateWithLifecycle()
 
-    LaunchedEffect(activeItem.id, isCasting) {
-        if (isCasting) {
-            val resolved = com.example.cast.AuraCastMediaResolver.resolveForCast(context, repository, activeItem)
-            if (resolved != null) {
-                castManager.requestCast(resolved)
-            }
-        }
-    }
 
     // AURA PHASE 2.1: Consolidated Lifecycle Management
     DisposableEffect(lifecycleOwner) {
@@ -1109,52 +1098,6 @@ fun MediaDetailScreen(
                                 color = Color.White.copy(alpha = 0.75f)
                             )
                         }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            Log.d("CastDialog", "Cast button clicked in MediaDetailScreen")
-                            try {
-                                val fragmentActivity = context as? androidx.fragment.app.FragmentActivity
-                                Log.d("CastDialog", "fragmentActivity=$fragmentActivity")
-                                if (fragmentActivity != null) {
-                                    val dialogFragment = androidx.mediarouter.app.MediaRouteChooserDialogFragment()
-                                    val selector = try {
-                                        com.google.android.gms.cast.framework.CastContext.getSharedInstance(context.applicationContext).mergedSelector
-                                    } catch (e: Exception) {
-                                        Log.w("CastDialog", "CastContext not initialized, falling back to MediaRouteSelector", e)
-                                        androidx.mediarouter.media.MediaRouteSelector.Builder()
-                                            .addControlCategory(androidx.mediarouter.media.MediaControlIntent.CATEGORY_LIVE_VIDEO)
-                                            .addControlCategory(androidx.mediarouter.media.MediaControlIntent.CATEGORY_REMOTE_PLAYBACK)
-                                            .build()
-                                    }
-                                    Log.d("CastDialog", "selector=$selector")
-                                    if (selector != null) {
-                                        dialogFragment.routeSelector = selector
-                                        dialogFragment.show(fragmentActivity.supportFragmentManager, "MediaRouteChooserDialogFragment")
-                                        Log.d("CastDialog", "show dialog called")
-                                    } else {
-                                        Toast.makeText(context, "No Cast routes available", Toast.LENGTH_SHORT).show()
-                                    }
-                                } else {
-                                    Toast.makeText(context, "Cast requires FragmentActivity", Toast.LENGTH_SHORT).show()
-                                }
-                            } catch (e: Exception) {
-                                Log.e("CastDialog", "Failed to open Cast chooser dialog", e)
-                                Toast.makeText(context, "Cast error: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier
-                            .size(40.dp)
-                            .testTag("detail_cast_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Cast",
-                            tint = Color.White
-                        )
                     }
                 }
 
