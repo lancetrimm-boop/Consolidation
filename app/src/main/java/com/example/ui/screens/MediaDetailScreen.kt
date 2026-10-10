@@ -532,22 +532,26 @@ fun MediaDetailScreen(
         }
     }
 
-    LaunchedEffect(showPlayerMenu) {
-        if (showPlayerMenu) {
-            wasPlayingBeforeMenu = isPlaying
-            if (isPlaying) {
-                exoPlayer.pause()
-            }
-        } else {
-            // Restore playback state only if it was playing before
-            if (wasPlayingBeforeMenu) {
-                exoPlayer.play()
+    LaunchedEffect(showPlayerMenu, isVideo) {
+        if (isVideo) {
+            if (showPlayerMenu) {
+                wasPlayingBeforeMenu = isPlaying
+                if (isPlaying) {
+                    exoPlayer.pause()
+                }
+            } else {
+                // Restore playback state only if it was playing before
+                if (wasPlayingBeforeMenu) {
+                    exoPlayer.play()
+                }
             }
         }
     }
 
-    LaunchedEffect(isLoopEnabled) {
-        exoPlayer.repeatMode = if (isLoopEnabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    LaunchedEffect(isLoopEnabled, isVideo) {
+        if (isVideo) {
+            exoPlayer.repeatMode = if (isLoopEnabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        }
     }
 
     // Task 1: Keep Screen Awake ONLY during active playback
@@ -657,35 +661,37 @@ fun MediaDetailScreen(
     // Progress update loop, A/B Repeat, Clip Loop & Phase 2 Exposure Tracking
     LaunchedEffect(isAbRepeatActive, abPointA, abPointB, activeClipCandidate, activeItem.id, isVideo) {
         while (true) {
-            currentPositionMs = exoPlayer.currentPosition.toFloat()
-            durationMs = exoPlayer.duration.coerceAtLeast(1L).toFloat()
-
             if (isVideo) {
+                currentPositionMs = exoPlayer.currentPosition.toFloat()
+                durationMs = exoPlayer.duration.coerceAtLeast(1L).toFloat()
+
                 exposureTracker?.updateVideoProgress(
                     currentPositionMs = exoPlayer.currentPosition,
                     durationMs = exoPlayer.duration,
                     isPlaying = exoPlayer.isPlaying,
                     isEnded = exoPlayer.playbackState == Player.STATE_ENDED
                 )
-            }
 
-            if (isAbRepeatActive && abPointA != null && abPointB != null) {
-                if (exoPlayer.currentPosition >= abPointB!!) {
-                    exoPlayer.seekTo(abPointA!!)
-                }
-            } else if (activeClipCandidate != null) {
-                val startMs = activeClipCandidate!!.startTimeMs
-                val endMs = activeClipCandidate!!.endTimeMs
-                val currentPos = exoPlayer.currentPosition
-                // AURA FIX: Only trigger loop/play if the player is intended to be playing (playWhenReady)
-                if (exoPlayer.playWhenReady && (currentPos >= endMs || currentPos < startMs - 1000L || exoPlayer.playbackState == Player.STATE_ENDED)) {
-                    exoPlayer.seekTo(startMs)
-                    if (!exoPlayer.isPlaying) {
-                        exoPlayer.play()
+                if (isAbRepeatActive && abPointA != null && abPointB != null) {
+                    if (exoPlayer.currentPosition >= abPointB!!) {
+                        exoPlayer.seekTo(abPointA!!)
+                    }
+                } else if (activeClipCandidate != null) {
+                    val startMs = activeClipCandidate!!.startTimeMs
+                    val endMs = activeClipCandidate!!.endTimeMs
+                    val currentPos = exoPlayer.currentPosition
+                    // AURA FIX: Only trigger loop/play if the player is intended to be playing (playWhenReady)
+                    if (exoPlayer.playWhenReady && (currentPos >= endMs || currentPos < startMs - 1000L || exoPlayer.playbackState == Player.STATE_ENDED)) {
+                        exoPlayer.seekTo(startMs)
+                        if (!exoPlayer.isPlaying) {
+                            exoPlayer.play()
+                        }
                     }
                 }
+                delay(100)
+            } else {
+                delay(500)
             }
-            delay(100)
         }
     }
 
@@ -952,7 +958,12 @@ fun MediaDetailScreen(
             }
         } else {
             // Photo Viewing Content
-            val photoModel = activeItem.imageUrl.ifEmpty { activeItem.uriPath }
+            val rawPhotoPath = activeItem.imageUrl.ifEmpty { activeItem.uriPath }
+            val photoModel = when {
+                rawPhotoPath.startsWith("http") || rawPhotoPath.startsWith("content") || rawPhotoPath.startsWith("file") -> rawPhotoPath
+                rawPhotoPath.startsWith("/") -> android.net.Uri.fromFile(java.io.File(rawPhotoPath)).toString()
+                else -> rawPhotoPath
+            }
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -1088,17 +1099,18 @@ fun MediaDetailScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    AndroidView<MediaRouteButton>(
-                        factory = { ctx ->
-                            val themedContext = android.view.ContextThemeWrapper(ctx, com.google.android.gms.cast.framework.R.style.CastExpandedController)
-                            MediaRouteButton(themedContext).apply {
-                                CastButtonFactory.setUpMediaRouteButton(ctx, this)
-                            }
-                        },
+                    IconButton(
+                        onClick = { },
                         modifier = Modifier
                             .size(40.dp)
                             .testTag("detail_cast_button")
-                    )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Cast",
+                            tint = Color.White
+                        )
+                    }
                 }
 
                 // Removed Center Controls row (Moving to unified Bottom Row)

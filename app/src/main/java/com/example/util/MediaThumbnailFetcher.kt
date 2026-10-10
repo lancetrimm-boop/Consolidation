@@ -163,7 +163,7 @@ object MediaThumbnailFetcher {
     }
 
     private fun extractFrame(context: Context, uriString: String, timeUs: Long): Bitmap? {
-        val uri = Uri.parse(uriString)
+        val uri = if (uriString.startsWith("/")) Uri.fromFile(File(uriString)) else Uri.parse(uriString)
         val mimeType = try { context.contentResolver.getType(uri) } catch (_: Exception) { null }
         
         // Optimized path for photos
@@ -181,7 +181,7 @@ object MediaThumbnailFetcher {
         // Standard path for videos using MediaMetadataRetriever
         val retriever = MediaMetadataRetriever()
         return try {
-            if (uriString.startsWith("content://") || uriString.startsWith("file://")) {
+            if (uriString.startsWith("content://") || uriString.startsWith("file://") || uriString.startsWith("/")) {
                 retriever.setDataSource(context, uri)
             } else {
                 retriever.setDataSource(uriString)
@@ -246,8 +246,9 @@ object MediaThumbnailFetcher {
     private fun getDuration(context: Context, uriString: String): Long {
         val retriever = MediaMetadataRetriever()
         return try {
-            if (uriString.startsWith("content://") || uriString.startsWith("file://")) {
-                retriever.setDataSource(context, Uri.parse(uriString))
+            val uri = if (uriString.startsWith("/")) Uri.fromFile(File(uriString)) else Uri.parse(uriString)
+            if (uriString.startsWith("content://") || uriString.startsWith("file://") || uriString.startsWith("/")) {
+                retriever.setDataSource(context, uri)
             } else {
                 retriever.setDataSource(uriString)
             }
