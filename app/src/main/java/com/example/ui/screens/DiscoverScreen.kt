@@ -511,6 +511,7 @@ fun ImmersiveMediaCard(
                 imageUrl = item.imageUrl,
                 uriPath = item.uriPath,
                 title = item.title,
+                convertedUri = item.convertedUri,
                 modifier = Modifier.fillMaxSize(),
                 locationTag = "immersive_card"
             )
@@ -752,6 +753,7 @@ fun ObsessionCard(
                 imageUrl = mainItem.imageUrl,
                 uriPath = mainItem.uriPath,
                 title = mainItem.title,
+                convertedUri = mainItem.convertedUri,
                 modifier = Modifier.fillMaxSize(),
                 locationTag = "discover_feed"
             )
@@ -804,11 +806,15 @@ fun ObsessionCard(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(AuraSubtleBorder)
                         ) {
-                            AsyncImage(
-                                model = if (item.imageUrl.isNotEmpty()) item.imageUrl else item.uriPath,
-                                contentDescription = null,
+                            AuraMediaThumbnail(
+                                itemId = item.id,
+                                mediaType = item.mediaType,
+                                imageUrl = item.imageUrl,
+                                uriPath = item.uriPath,
+                                title = item.title,
+                                convertedUri = item.convertedUri,
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                locationTag = "discover_secondary"
                             )
                         }
                     }
