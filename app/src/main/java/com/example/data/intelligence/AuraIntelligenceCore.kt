@@ -557,9 +557,9 @@ class AuraIntelligenceCore(
         val isTextSearch = !request.query.isNullOrBlank()
         val isPureVisual = !isTextSearch && (request.visualVector != null || isSimilarMode)
         val precisionThreshold = when {
-            isSimilarMode -> 0.45f
+            isSimilarMode -> 0.55f
             isTextSearch -> config.minTextSemanticSimilarity
-            isPureVisual -> config.minSemanticSimilarity
+            isPureVisual -> 0.45f
             else -> 0.0f
         }
 
