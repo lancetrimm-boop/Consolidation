@@ -205,10 +205,14 @@ class MeTVProgrammingEngine {
                 score -= 0.35f
             }
 
-            // Construct Flattering Aesthetic Explanation
-            explanations[item.id] = buildAestheticExplanation(item, score, currentDaypart, experienceRequest)
+            // Controlled Epoch Rotation Variation for Fresh Sequences on Refresh
+            val epochVariation = (((item.id.hashCode() xor refreshEpoch).hashCode() and 0x7FFFFFFF) % 100) / 1000.0f
+            val finalScore = score + epochVariation
 
-            item to score
+            // Construct Flattering Aesthetic Explanation
+            explanations[item.id] = buildAestheticExplanation(item, finalScore, currentDaypart, experienceRequest)
+
+            item to finalScore
         }
 
         // 4. Sort deterministically by final blended score descending with tie-breaking by refreshEpoch

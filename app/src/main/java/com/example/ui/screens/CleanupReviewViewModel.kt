@@ -166,10 +166,12 @@ class CleanupReviewViewModel(
                         )
                     }
 
+                    val itemMap = repository.mediaItems.value.associateBy { it.id }
                     _uiState.update { state ->
                         val newSelectedIds = state.selectedIds.intersect(recommendations.map { it.mediaId }.toSet())
                         val newState = state.copy(
                             recommendations = recommendations,
+                            mediaItems = itemMap,
                             categoryStats = statsMap,
                             isLoading = false,
                             selectedIds = newSelectedIds

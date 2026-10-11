@@ -992,6 +992,7 @@ fun VideoTilePreview(
             },
             update = { playerView ->
                 playerViewRef = playerView
+                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 if (playerView.player != player) {
                     playerView.player = player
                 }

@@ -960,7 +960,7 @@ fun MediaDetailScreen(
             }
         } else {
             // Photo Viewing Content
-            val rawPhotoPath = activeItem.imageUrl.ifEmpty { activeItem.uriPath }
+            val rawPhotoPath = activeItem.convertedUri ?: activeItem.uriPath.ifEmpty { activeItem.imageUrl }
             val photoModel = when {
                 rawPhotoPath.startsWith("http") || rawPhotoPath.startsWith("content") || rawPhotoPath.startsWith("file") -> rawPhotoPath
                 rawPhotoPath.startsWith("/") -> android.net.Uri.fromFile(java.io.File(rawPhotoPath)).toString()
