@@ -1592,39 +1592,56 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     }
     
     internal suspend fun processPendingMedia(context: Context, scanId: Long, volumes: Set<String>, isManual: Boolean = false) { 
-        val pending = database?.mediaDao()?.getPendingAnalysis() ?: emptyList() 
         val totalCount = _mediaItems.value.size
+        val initialPendingCount = database?.mediaDao()?.getPendingAnalysis()?.size ?: 0
         presentationMediaStore.updateProgress(
             totalScanned = totalCount,
             totalAdmitted = visibleMediaItems.value.size,
-            isAnalysisComplete = pending.isEmpty()
+            isAnalysisComplete = initialPendingCount == 0
         )
-        pending.forEach { entity -> 
-            val report = AuraMediaCompatibilityEngine.analyzeMedia(context, entity.uriPath, entity.mediaType) 
-            val updatedEntity = entity.copy(
-                compatibilityStatus = report.status.name,
-                containerFormat = report.containerFormat,
-                videoCodec = report.videoCodec,
-                audioCodec = report.audioCodec,
-                width = report.width,
-                height = report.height,
-                durationMs = if (report.durationMs > 0) report.durationMs else entity.durationMs,
-                sizeBytes = if (report.sizeBytes > 0) report.sizeBytes else entity.sizeBytes,
-                compatibilityReason = report.compatibilityReason,
-                conversionStatus = report.conversionStatus.name,
-                convertedUri = report.convertedUri ?: "",
-                lastCompatibilityCheckTimestamp = System.currentTimeMillis()
-            )
-            updateMediaItemsState { list ->
-                list.map { if (it.id == entity.id) updatedEntity.toMediaItem() else it }
+
+        while (true) {
+            val batch = database?.mediaDao()?.getPendingAnalysisBatch(50) ?: emptyList()
+            if (batch.isEmpty()) break
+
+            batch.forEach { entity ->
+                try {
+                    val report = AuraMediaCompatibilityEngine.analyzeMedia(context, entity.uriPath, entity.mediaType) 
+                    val updatedEntity = entity.copy(
+                        compatibilityStatus = report.status.name,
+                        containerFormat = report.containerFormat,
+                        videoCodec = report.videoCodec,
+                        audioCodec = report.audioCodec,
+                        width = report.width,
+                        height = report.height,
+                        durationMs = if (report.durationMs > 0) report.durationMs else entity.durationMs,
+                        sizeBytes = if (report.sizeBytes > 0) report.sizeBytes else entity.sizeBytes,
+                        compatibilityReason = report.compatibilityReason,
+                        conversionStatus = report.conversionStatus.name,
+                        convertedUri = report.convertedUri ?: "",
+                        lastCompatibilityCheckTimestamp = System.currentTimeMillis()
+                    )
+                    updateMediaItemsState { list ->
+                        list.map { if (it.id == entity.id) updatedEntity.toMediaItem() else it }
+                    }
+                    database?.mediaDao()?.update(updatedEntity)
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.e("MediaRepository", "Error processing pending media item ${entity.id}", e)
+                    try {
+                        val failedEntity = entity.copy(compatibilityStatus = "CORRUPT", compatibilityReason = e.message ?: "Analysis error")
+                        database?.mediaDao()?.update(failedEntity)
+                    } catch (_: Exception) {}
+                }
+                presentationMediaStore.updateProgress(
+                    totalScanned = totalCount,
+                    totalAdmitted = visibleMediaItems.value.size,
+                    isAnalysisComplete = false
+                )
             }
-            database?.mediaDao()?.update(updatedEntity) 
-            presentationMediaStore.updateProgress(
-                totalScanned = totalCount,
-                totalAdmitted = visibleMediaItems.value.size,
-                isAnalysisComplete = false
-            )
-        } 
+            kotlinx.coroutines.yield()
+        }
+
         presentationMediaStore.markAnalysisComplete()
         backfillSemantics()
     }

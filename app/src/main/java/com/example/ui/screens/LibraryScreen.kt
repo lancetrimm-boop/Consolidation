@@ -600,9 +600,6 @@ fun LibraryContent(
                 onRefresh = { 
                     onRefresh()
                     stableItems = emptyList() // Force reload on manual refresh
-                    if (state.dbState == com.example.data.DatabaseState.READY) {
-                        onTriggerScan()
-                    }
                 },
                 modifier = Modifier.fillMaxSize()
             ) {

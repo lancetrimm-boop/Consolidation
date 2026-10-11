@@ -74,7 +74,7 @@ import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.ThemePreferences
 import kotlinx.coroutines.launch
 
-class MainActivity : androidx.fragment.app.FragmentActivity() {
+class MainActivity : ComponentActivity() {
 
     private val repository = MediaRepository.instance
 

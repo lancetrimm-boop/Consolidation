@@ -25,6 +25,9 @@ interface MediaDao {
     @Query("SELECT * FROM media_items WHERE compatibilityStatus = 'ANALYSIS_PENDING'")
     suspend fun getPendingAnalysis(): List<MediaEntity>
 
+    @Query("SELECT * FROM media_items WHERE compatibilityStatus = 'ANALYSIS_PENDING' ORDER BY dateAdded DESC LIMIT :limit")
+    suspend fun getPendingAnalysisBatch(limit: Int): List<MediaEntity>
+
     @Query("""
         SELECT * FROM media_items 
         WHERE isDeleted = 0 
