@@ -48,7 +48,7 @@ import com.example.ui.theme.DiscoveryViolet
 fun CleanupReviewScreen(
     viewModel: CleanupReviewViewModel,
     onBack: () -> Unit,
-    onMediaDetail: (MediaItem) -> Unit,
+    onMediaDetail: (MediaItem, List<MediaItem>) -> Unit,
     deleteLauncher: androidx.activity.result.ActivityResultLauncher<androidx.activity.result.IntentSenderRequest>,
     onUnlockPro: () -> Unit = {}
 ) {
@@ -100,7 +100,7 @@ fun CleanupReviewScreen(
                         onClearSelection = { viewModel.clearSelection() },
                         onUpdateSort = { viewModel.updateSort(it) },
                         onKeepItem = { viewModel.keepItem(it) },
-                        onViewMedia = onMediaDetail
+                        onViewMedia = { item, list -> onMediaDetail(item, list) }
                     )
                     
                     // Bulk Action Overlay
@@ -261,7 +261,7 @@ private fun RecommendationsList(
     onClearSelection: () -> Unit,
     onUpdateSort: (ReviewSort) -> Unit,
     onKeepItem: (String) -> Unit,
-    onViewMedia: (MediaItem) -> Unit = {}
+    onViewMedia: (MediaItem, List<MediaItem>) -> Unit = { _, _ -> }
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -322,7 +322,7 @@ private fun RecommendationsList(
                     isSelected = uiState.selectedIds.contains(rec.mediaId),
                     onToggleSelection = { onToggleSelection(rec.mediaId) },
                     onKeep = { onKeepItem(rec.mediaId) },
-                    onViewMedia = { onViewMedia(item) }
+                    onViewMedia = { onViewMedia(item, uiState.filteredRecommendations.mapNotNull { uiState.mediaItems[it.mediaId] }) }
                 )
             }
         }

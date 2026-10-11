@@ -1012,8 +1012,9 @@ fun AuraMainContent(
                                 onBack = {
                                     currentRoute = NavDestination.PROFILE.route
                                 },
-                                onMediaDetail = { item ->
-                                    repository.setPlaylist(listOf(item), 0, "Smart Cleanup Review")
+                                onMediaDetail = { item, reviewList ->
+                                    val index = reviewList.indexOfFirst { it.id == item.id }.coerceAtLeast(0)
+                                    repository.setPlaylist(reviewList, index, "Smart Cleanup Review")
                                 },
                                 deleteLauncher = deleteRequestLauncher,
                                 onUnlockPro = onUnlockPro

@@ -16,7 +16,7 @@ class ChannelProgrammer(
         "ME_TV" to MeTvLaneStrategy(meTvEngine),
         "FAVORITES" to FavoritesLaneStrategy(),
         "REDISCOVER" to RediscoverLaneStrategy(),
-        "CONTINUE" to ContinueLaneStrategy(),
+        "FRESH_ARRIVALS" to FreshArrivalsLaneStrategy(),
         "MOOD" to MoodLaneStrategy(),
         "NOVELTY" to NoveltyLaneStrategy(),
         "ERA" to EraLaneStrategy(),
@@ -235,23 +235,16 @@ class MoodLaneStrategy : LaneStrategy {
 }
 
 /**
- * 5. Continue Strategy — Serialized series continue, selecting oldest unwatched episode in order.
+ * 5. Fresh Arrivals Strategy — Prioritizes newly added local media (`dateAdded DESC`).
  */
-class ContinueLaneStrategy : LaneStrategy {
+class FreshArrivalsLaneStrategy : LaneStrategy {
     override fun programBlock(channel: Channel, context: ChannelProgrammingContext, limit: Int): List<MediaItem> {
         val pool = ChannelProgrammer.filterPool(context.availableMedia, context.filterType)
-        val serializedGroups = pool.filter { !it.parentContentId.isNullOrBlank() }.groupBy { it.parentContentId!! }
-
-        val result = mutableListOf<MediaItem>()
-        serializedGroups.forEach { (_, group) ->
-            val oldestUnwatched = group.filter { ((context.decayedExposureMap[it.id] ?: (context.exposureMap[it.id]?.toFloat() ?: it.getDecayedExposure(context.currentTimeMs))) + (context.sessionExposures[it.id] ?: 0).toFloat()) < 0.1f }
-                .sortedWith(compareBy<MediaItem> { it.selectionReason ?: "" }.thenBy { it.id })
-                .firstOrNull() ?: group.sortedWith(compareBy<MediaItem> { it.selectionReason ?: "" }.thenBy { it.id }).firstOrNull()
-            if (oldestUnwatched != null) {
-                result.add(oldestUnwatched)
-            }
-        }
-        return result.take(limit)
+        return pool.sortedWith(
+            compareByDescending<MediaItem> { it.dateAdded }
+                .thenByDescending { it.dateModified }
+                .thenBy { (it.id.hashCode() xor context.refreshEpoch).toString() }
+        ).take(limit)
     }
 }
 

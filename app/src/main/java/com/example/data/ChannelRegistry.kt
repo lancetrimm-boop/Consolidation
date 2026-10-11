@@ -42,11 +42,11 @@ object ChannelRegistry {
             isProGated = true
         ),
         Channel(
-            id = "CONTINUE",
-            title = "Series Continue",
-            query = "continue series episode",
+            id = "FRESH_ARRIVALS",
+            title = "Fresh Arrivals",
+            query = "fresh newly added arrivals",
             channelKind = ChannelKind.FIXED,
-            strategyId = "CONTINUE",
+            strategyId = "FRESH_ARRIVALS",
             order = 3,
             isDefault = false,
             isProGated = true
