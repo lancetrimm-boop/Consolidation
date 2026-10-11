@@ -541,8 +541,13 @@ fun AuraMainContent(
                         coroutineScope.launch {
                             val response = repository.getSimilarMedia(targetItem, requestId)
                             if (response.isSuccess && response.candidates.isNotEmpty()) {
-                                val similar = response.candidates.map { it.item }
-                                repository.setPlaylist(items = similar, initialIndex = 0, sourceTitle = "Similar — ${targetItem.title}")
+                                val targetType = targetItem.mediaType
+                                val similarCandidates = response.candidates
+                                    .map { it.item }
+                                    .filter { it.mediaType == targetType }
+                                    .filter { it.id != targetItem.id }
+                                val queue = listOf(targetItem) + similarCandidates
+                                repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "Similar — ${targetItem.title}")
                                 activeMomentsMode = null // Exit slideshow to play similar items
                             }
                         }
@@ -656,8 +661,13 @@ fun AuraMainContent(
                             Log.d("SEE_SIMILAR_TRACE", "STAGE=RESULT requestId=$requestId isSuccess=${response.isSuccess} resultCount=${response.candidates.size}")
                             
                             if (response.isSuccess && response.candidates.isNotEmpty()) {
-                                val similar = response.candidates.map { it.item }
-                                repository.setPlaylist(items = similar, initialIndex = 0, sourceTitle = "See Similar — ${targetItem.title}")
+                                val targetType = targetItem.mediaType
+                                val similarCandidates = response.candidates
+                                    .map { it.item }
+                                    .filter { it.mediaType == targetType }
+                                    .filter { it.id != targetItem.id }
+                                val queue = listOf(targetItem) + similarCandidates
+                                repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "See Similar — ${targetItem.title}")
                                 
                                 val active = repository.activePlaylist.value
                                 if (active != null && active.items.isNotEmpty()) {
