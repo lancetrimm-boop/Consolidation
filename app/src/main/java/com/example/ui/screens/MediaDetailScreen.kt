@@ -274,7 +274,6 @@ fun MediaDetailScreen(
     val isAtEndOfPlaylist = remember(playlistState, currentItemIndex) {
         playlistState != null && (currentItemIndex >= playlistState.items.size - 1 || !playlistState.hasNext)
     }
-    var showEndOfChannelPrompt by remember(playlistState?.items, currentItemIndex) { mutableStateOf(false) }
 
     val slideshowDelaySec by repository.slideshowDelaySeconds.collectAsStateWithLifecycle()
     val isPhotoPlaying = !isVideo && !showPlayerMenu && !showDeleteDialog && isPlaying
@@ -301,11 +300,7 @@ fun MediaDetailScreen(
             )
         }
 
-        if (isAtEndOfPlaylist) {
-            showEndOfChannelPrompt = true
-        } else {
-            onNext()
-        }
+        onNext()
     }
 
     // Watched Destination Observation for AI Skip learning
@@ -435,11 +430,7 @@ fun MediaDetailScreen(
                             isPlaying = isPlaying,
                             isEnded = true
                         )
-                        if (isAtEndOfPlaylist) {
-                            showEndOfChannelPrompt = true
-                        } else {
-                            onNext()
-                        }
+                        onNext()
                         repository.interactionRepository?.let { iRepo ->
                             com.example.data.AuraInteractionService.logInteraction(
                                 repository,
@@ -1238,11 +1229,7 @@ fun MediaDetailScreen(
                         val isNextButtonEnabled = playlistState == null || playlistState.hasNext || isAtEndOfPlaylist
                         IconButton(
                             onClick = {
-                                if (isAtEndOfPlaylist) {
-                                    showEndOfChannelPrompt = true
-                                } else {
-                                    onNext()
-                                }
+                                onNext()
                             },
                             enabled = isNextButtonEnabled,
                             modifier = Modifier.testTag("detail_next_button")
@@ -1576,44 +1563,6 @@ fun MediaDetailScreen(
                 }
             }
         }
-    }
-
-    if (showEndOfChannelPrompt) {
-        AlertDialog(
-            onDismissRequest = { },
-            title = {
-                Text(
-                    text = "You've reached the end of this channel.",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showEndOfChannelPrompt = false
-                        onReloadChannel?.invoke()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = DiscoveryViolet)
-                ) {
-                    Text("Reload this channel", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = {
-                        showEndOfChannelPrompt = false
-                        onBack()
-                    },
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f))
-                ) {
-                    Text("Switch channel", color = Color.White)
-                }
-            },
-            containerColor = AuraMidnight,
-            shape = RoundedCornerShape(16.dp)
-        )
     }
 }
 

@@ -996,6 +996,7 @@ fun VideoTilePreview(
                 if (playerView.player != player) {
                     playerView.player = player
                 }
+                playerView.requestLayout()
             },
             modifier = modifier
                 .fillMaxSize()
