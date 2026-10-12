@@ -17,9 +17,6 @@ object VectorMath {
 
     const val DEFAULT_EPSILON = 1e-9f
 
-    /**
-     * Validates that a vector is non-empty and contains finite numerical values.
-     */
     fun validateVector(vector: FloatArray) {
         require(vector.isNotEmpty()) { "Vector cannot be empty" }
         for (i in vector.indices) {
@@ -29,9 +26,6 @@ object VectorMath {
         }
     }
 
-    /**
-     * Computes the dot product of two vectors: u · v.
-     */
     fun dotProduct(u: FloatArray, v: FloatArray): Float {
         validateVector(u)
         validateVector(v)
@@ -50,9 +44,6 @@ object VectorMath {
         return result
     }
 
-    /**
-     * Computes the L2 (Euclidean) norm (magnitude) of a vector: ||v||₂.
-     */
     fun magnitude(v: FloatArray): Float {
         validateVector(v)
         var sumSquares = 0.0
@@ -67,13 +58,6 @@ object VectorMath {
         return mag
     }
 
-    /**
-     * Computes the Cosine Similarity between two vectors:
-     * cos(θ) = (u · v) / (||u||₂ * ||v||₂)
-     *
-     * Result is strictly clamped to [-1.0f, 1.0f].
-     * Throws [IllegalArgumentException] if either vector is a zero vector (magnitude < epsilon).
-     */
     fun cosineSimilarity(u: FloatArray, v: FloatArray, epsilon: Float = DEFAULT_EPSILON): Float {
         validateVector(u)
         validateVector(v)
@@ -97,9 +81,6 @@ object VectorMath {
         return sim
     }
 
-    /**
-     * Safely attempts to compute cosine similarity, returning null if vectors cannot be compared.
-     */
     fun safeCosineSimilarity(u: FloatArray, v: FloatArray, epsilon: Float = DEFAULT_EPSILON): Float? {
         return try {
             cosineSimilarity(u, v, epsilon)
@@ -108,11 +89,6 @@ object VectorMath {
         }
     }
 
-    /**
-     * Normalizes a vector to unit length (L2 norm = 1.0).
-     *
-     * Throws [IllegalArgumentException] if the vector magnitude is below [epsilon].
-     */
     fun l2Normalize(v: FloatArray, epsilon: Float = DEFAULT_EPSILON): FloatArray {
         validateVector(v)
         val mag = magnitude(v)
@@ -128,9 +104,6 @@ object VectorMath {
         return normalized
     }
 
-    /**
-     * Computes the element-wise mean of multiple vectors.
-     */
     fun mean(vectors: List<FloatArray>): FloatArray {
         require(vectors.isNotEmpty()) { "Vector list cannot be empty" }
         val dim = vectors[0].size
@@ -149,10 +122,24 @@ object VectorMath {
         return result
     }
 
-    /**
-     * Deterministic serialization of FloatArray to IEEE 754 Big-Endian ByteArray.
-     * Output byte size is exactly vector.size * 4.
-     */
+    /** Element-wise max across multiple vectors (max-pooling for multi-frame video). */
+    fun maxPool(vectors: List<FloatArray>): FloatArray {
+        require(vectors.isNotEmpty()) { "Vector list cannot be empty" }
+        val dim = vectors[0].size
+        for (v in vectors) {
+            require(v.size == dim) { "Vector dimension mismatch in maxPool calculation" }
+        }
+        val result = FloatArray(dim)
+        for (d in 0 until dim) {
+            var m = vectors[0][d]
+            for (i in 1 until vectors.size) {
+                if (vectors[i][d] > m) m = vectors[i][d]
+            }
+            result[d] = m
+        }
+        return result
+    }
+
     fun serialize(vector: FloatArray, byteOrder: ByteOrder = ByteOrder.BIG_ENDIAN): ByteArray {
         validateVector(vector)
         val byteBuffer = ByteBuffer.allocate(vector.size * 4).order(byteOrder)
@@ -162,13 +149,6 @@ object VectorMath {
         return byteBuffer.array()
     }
 
-    /**
-     * Deterministic deserialization of IEEE 754 ByteArray to FloatArray.
-     *
-     * @param bytes Serialized byte array (must be non-empty and multiple of 4).
-     * @param expectedDimension Optional expected dimension to strictly validate.
-     * @param byteOrder ByteOrder used during serialization (defaults to BIG_ENDIAN).
-     */
     fun deserialize(
         bytes: ByteArray,
         expectedDimension: Int? = null,
