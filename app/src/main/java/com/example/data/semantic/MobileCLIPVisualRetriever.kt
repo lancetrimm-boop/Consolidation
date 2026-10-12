@@ -71,7 +71,7 @@ class DefaultMobileCLIPVisualRetriever(
         minSimilarity: Float
     ): List<RankedChannelItem> {
         android.util.Log.i("VISUAL_RETRIEVAL", "RETRIEVE_VECTOR_START: dim=${queryVector.size}")
-        val calibratedMinSim = if (minSimilarity < 0) 0.42f else minSimilarity
+        val calibratedMinSim = if (minSimilarity < 0) 0.15f else minSimilarity
         val result = try {
             visualSearchService.search(
                 queryVector = queryVector,

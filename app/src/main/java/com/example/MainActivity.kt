@@ -544,10 +544,10 @@ fun AuraMainContent(
                                 val targetType = targetItem.mediaType
                                 val similarCandidates = response.candidates
                                     .map { it.item }
-                                    .filter { it.mediaType == targetType }
+                                    .filter { it.mediaType.equals(targetType, ignoreCase = true) }
                                     .filter { it.id != targetItem.id }
                                 val queue = listOf(targetItem) + similarCandidates
-                                repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "Similar — ${targetItem.title}")
+                                repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "Similar — ${targetItem.title}", isFinite = true)
                                 activeMomentsMode = null // Exit slideshow to play similar items
                             }
                         }

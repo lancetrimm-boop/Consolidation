@@ -52,7 +52,8 @@ data class PlaylistState(
     val authoritativeMediaId: String? = null,
     val sourceTitle: String = "",
     val channel: Channel? = null,
-    val channelFilterType: String? = null
+    val channelFilterType: String? = null,
+    val isFinite: Boolean = false
 ) {
     val currentItem: MediaItem? get() = items.getOrNull(currentIndex)
     val hasNext: Boolean get() = (currentIndex < items.size - 1)
@@ -882,7 +883,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     private val LOW_WATER_THRESHOLD = 5
     private var isReplenishing = false
 
-    fun setPlaylist(items: List<MediaItem>, initialIndex: Int, sourceTitle: String = "Playlist") {
+    fun setPlaylist(items: List<MediaItem>, initialIndex: Int, sourceTitle: String = "Playlist", isFinite: Boolean = false) {
         if (items.isEmpty()) { _activePlaylist.value = null; return }; _isPlayerActive.value = true
         val sanitized = items.filter { isItemVisibleInLibrary(it) }
         if (sanitized.isEmpty()) { _activePlaylist.value = null; return }
@@ -891,7 +892,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         isResumingFromBackground = false
         
         val idx = items.getOrNull(initialIndex)?.let { orig -> sanitized.indexOfFirst { it.id == orig.id }.let { if (it != -1) it else 0 } } ?: 0
-        _activePlaylist.value = PlaylistState(sanitized, idx, sanitized.getOrNull(idx)?.id, sourceTitle)
+        _activePlaylist.value = PlaylistState(sanitized, idx, sanitized.getOrNull(idx)?.id, sourceTitle, isFinite = isFinite)
     }
 
     fun setChannelPlaylist(

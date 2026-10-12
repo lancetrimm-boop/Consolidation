@@ -199,7 +199,7 @@ class CleanupSelectionAndViewTest {
         testScheduler.advanceUntilIdle()
 
         // Verify setPlaylist was called with item_a
-        verify(mockRepo).setPlaylist(eq(listOf(items[0])), eq(0), eq("Smart Cleanup Review"))
+        verify(mockRepo).setPlaylist(eq(listOf(items[0])), eq(0), eq("Smart Cleanup Review"), any())
 
         // Verify ViewModel decision state was NOT mutated
         assertEquals("Selection should remain unchanged after viewing media", initialSelected, viewModel.uiState.value.selectedIds)

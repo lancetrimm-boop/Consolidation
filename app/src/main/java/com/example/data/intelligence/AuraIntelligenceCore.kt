@@ -557,7 +557,7 @@ class AuraIntelligenceCore(
         val isTextSearch = !request.query.isNullOrBlank()
         val isPureVisual = !isTextSearch && (request.visualVector != null || isSimilarMode)
         val precisionThreshold = when {
-            isSimilarMode -> 0.38f
+            isSimilarMode -> 0.35f
             isTextSearch -> config.minTextSemanticSimilarity
             isPureVisual -> config.minSemanticSimilarity
             else -> 0.0f
@@ -633,16 +633,28 @@ class AuraIntelligenceCore(
             }
             val relBonus = scoreRelationships(item, request.relatedMediaIds, evidence)
 
-            val finalScore = (fusedCandidate.rrfScore * 0.7) + (personalScore * 0.3) + (explorationEvidence.explorationScore * 0.05) + (relBonus * 0.1) + pairwiseImpact
+            val visualScore = fusedCandidate.channelScores[SearchChannel.SEMANTIC_VISUAL] ?: maxNeuralSimilarity
+            val formattedReason = if (isSimilarMode && visualScore > 0f) "${(visualScore * 100).toInt()}% Similar" else item.selectionReason
+
+            val finalScore = if (isSimilarMode) {
+                visualScore.toDouble()
+            } else {
+                (fusedCandidate.rrfScore * 0.7) + (personalScore * 0.3) + (explorationEvidence.explorationScore * 0.05) + (relBonus * 0.1) + pairwiseImpact
+            }
 
             IntelligenceCandidate(
-                item = item, evidence = evidence, rankScore = finalScore,
-                primaryRelevanceScore = fusedCandidate.rrfScore.toFloat(),
+                item = item.copy(selectionReason = formattedReason), evidence = evidence, rankScore = finalScore,
+                primaryRelevanceScore = if (isSimilarMode) visualScore else fusedCandidate.rrfScore.toFloat(),
                 secondaryEvidenceScore = personalScore.toFloat(),
                 provenance = buildProvenance(evidence, finalScore)
             )
         }
-        return finalizeResults(candidates, request)
+        val sortedCandidates = if (isSimilarMode) {
+            candidates.sortedByDescending { it.rankScore }
+        } else {
+            candidates
+        }
+        return finalizeResults(sortedCandidates, request)
     }
 
     private fun seal(candidates: List<IntelligenceCandidate>, request: IntelligenceRequest): List<IntelligenceCandidate> {

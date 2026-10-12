@@ -25,9 +25,9 @@ class DefaultVisualIndexingService(
     private val inFlightJobs = java.util.concurrent.ConcurrentHashMap<String, Deferred<EmbeddingResult>>()
 
     companion object {
-        /** Version 5: Full-resolution photo decode + max-pool video aggregation. */
+        /** Version 6: Full-resolution photo decode reindex. */
         const val VISUAL_INDEX_VERSION = 5
-        const val IMAGE_INDEX_VERSION = 5
+        const val IMAGE_INDEX_VERSION = 6
     }
 
     override suspend fun initializeIndex() {
