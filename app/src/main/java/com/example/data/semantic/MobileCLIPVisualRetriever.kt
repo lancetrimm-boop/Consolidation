@@ -2,9 +2,6 @@ package com.example.data.semantic
 
 /**
  * Specialized retriever for MobileCLIP visual embeddings.
- *
- * Bridges the gap between a text query and the VISUAL modality index using the
- * MobileCLIP shared embedding space.
  */
 interface MobileCLIPVisualRetriever {
     fun isReady(): Boolean
@@ -34,8 +31,8 @@ class DefaultMobileCLIPVisualRetriever(
         minSimilarity: Float
     ): List<RankedChannelItem> {
         android.util.Log.i("VISUAL_RETRIEVAL", "RETRIEVE_START: query=\"$query\" topK=$topK")
-        // Calibrated minimum visual similarity threshold (0.42f)
-        val calibratedMinSim = if (minSimilarity < 0) 0.42f else minSimilarity
+        // Sep-3 style recall floor for visual retrieval (0.15f)
+        val calibratedMinSim = if (minSimilarity < 0) 0.15f else minSimilarity
         val result = try {
             visualSearchService.search(
                 query = query,
