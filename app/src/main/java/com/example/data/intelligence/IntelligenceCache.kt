@@ -18,8 +18,13 @@ object IntelligenceCache {
 
     /**
      * Cache results of a specific request.
+     * Never cache empty or failed responses so transient index/model gaps do not stick.
      */
     fun putResponse(request: IntelligenceRequest, response: IntelligenceResponse) {
+        if (!response.isSuccess || response.candidates.isEmpty()) {
+            Log.d("IntelligenceCache", "Skip cache empty/failed response mode=${request.mode}")
+            return
+        }
         val key = request.hashCode()
         responseCache[key] = response
     }
