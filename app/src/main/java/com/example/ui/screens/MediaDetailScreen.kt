@@ -209,8 +209,8 @@ fun MediaDetailScreen(
     // Authoritative index directly derived from playlistState to ensure 100% synchronization with MediaRepository and Media3
     val currentItemIndex = playlistState?.currentIndex ?: 0
     
-    val activeItem = remember(currentItemIndex, playlistState) {
-        playlistState?.items?.getOrNull(currentItemIndex) ?: item
+    val activeItem = remember(playlistState?.currentIndex, playlistState?.items, playlistState) {
+        playlistState?.currentItem ?: item
     }
 
     val isSaved by repository.observeIsSaved(activeItem.id).collectAsState(initial = false)
@@ -393,6 +393,7 @@ fun MediaDetailScreen(
                 }
                 
                 override fun onMediaItemTransition(mediaItem: Media3Item?, reason: Int) {
+                    consecutiveFailureCount = 0
                     // Update UI index from ACTUAL player transition
                     val transitionedId = mediaItem?.mediaId
                     val originalIndex = if (playlistState != null) {
@@ -561,10 +562,12 @@ fun MediaDetailScreen(
     
     // AURA FIX: Identify video-only items for ExoPlayer playlist to avoid Photo source errors
     val videoOnlyItems = remember(playlistIds) {
-        val baseList = playlistState?.items ?: listOf(item)
-        baseList.filter { itm -> 
-            itm.mediaType.equals("VIDEO", ignoreCase = true) || itm.mediaType.equals("Movie", ignoreCase = true) 
-        }
+        playlistState?.items ?: listOf(item)
+    }
+
+    LaunchedEffect(playlistIds) {
+        isFirstLaunch = true
+        repository.updatePlaybackPosition(0L)
     }
 
     // AURA PHASE 2.1: Consolidated Playback Synchronization
@@ -603,14 +606,16 @@ fun MediaDetailScreen(
 
                     // AURA PHASE 2: Check if we are resuming to determine initial seek and playWhenReady
                     val isResuming = repository.isResumingFromBackground || !isFirstLaunch
-                    val startPos = if (isResuming) repository.lastPlaybackPositionMs else 0L
-                    val targetVideoIndex = videoOnlyItems.indexOfFirst { it.id == activeItem.id }.coerceAtLeast(0)
+                    val isSeeSimilar = playlistState?.sourceTitle?.startsWith("See Similar") == true || playlistState?.sourceTitle?.startsWith("Similar") == true
+                    val startPos = if (isSeeSimilar) 0L else if (isResuming) repository.lastPlaybackPositionMs else 0L
+                    val targetVideoIndex = playlistState?.currentIndex?.coerceAtLeast(0) 
+                        ?: videoOnlyItems.indexOfFirst { it.id == activeItem.id }.coerceAtLeast(0)
                     
                     exoPlayer.setMediaItems(media3Items, targetVideoIndex, startPos)
                     exoPlayer.prepare()
                     
                     // Requirements: Do NOT autoplay on background resume, but preserve state on rotation
-                    exoPlayer.playWhenReady = if (isFirstLaunch) true else wasPlayingBeforeRotation
+                    exoPlayer.playWhenReady = if (isFirstLaunch || isSeeSimilar) true else wasPlayingBeforeRotation
                     
                     // Reset flags once handled
                     wasPlayingBeforeRotation = false
@@ -618,7 +623,8 @@ fun MediaDetailScreen(
                 }
             } else {
                 // 2. Just synchronize index if playlist is already correctly loaded
-                val targetVideoIndex = videoOnlyItems.indexOfFirst { it.id == activeItem.id }
+                val targetVideoIndex = playlistState?.currentIndex?.coerceAtLeast(0) 
+                    ?: videoOnlyItems.indexOfFirst { it.id == activeItem.id }
                 if (targetVideoIndex != -1 && (exoPlayer.currentMediaItemIndex != targetVideoIndex || exoPlayer.playbackState == Player.STATE_IDLE)) {
                     exoPlayer.seekTo(targetVideoIndex, 0L)
                     exoPlayer.prepare()

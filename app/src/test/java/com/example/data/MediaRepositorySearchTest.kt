@@ -422,6 +422,42 @@ class MediaRepositorySearchTest {
         assertEquals("Loaded 17 similar items", formatCountMsg(17))
         assertEquals("Loaded 50 similar items", formatCountMsg(50))
     }
+
+    @Test
+    fun testFiniteSeeSimilarPlaylist_PreservesReferenceAndResistsObserverReplenishment() = runTest(testDispatcher) {
+        val refItem = MediaItem(id = "ref_photo", title = "Reference", mediaType = "PHOTO")
+        val simItem = MediaItem(id = "sim_photo", title = "Similar", mediaType = "PHOTO", selectionReason = "85% Similar")
+
+        repository.setMediaItemsForTesting(listOf(refItem, simItem))
+
+        val queue = listOf(refItem, simItem)
+        repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "See Similar — Reference", isFinite = true)
+
+        val active = repository.activePlaylist.value
+        assertNotNull(active)
+        assertTrue(active!!.isFinite)
+        assertEquals("ref_photo", active.currentItem?.id)
+        assertEquals(0, active.currentIndex)
+        assertEquals(2, active.items.size)
+        assertEquals("85% Similar", active.items[1].selectionReason)
+
+        // Trigger replenishment check at last index
+        repository.checkAndReplenishActivePlaylist(1, active.items.size)
+        assertEquals(2, repository.activePlaylist.value?.items?.size) // Did not grow
+
+        // Simulate database observer emission
+        val newItem = MediaItem(id = "new_item", title = "New", mediaType = "PHOTO")
+        repository.setMediaItemsForTesting(listOf(refItem, simItem, newItem))
+        advanceUntilIdle()
+
+        // Verify active playlist items were NOT replaced or mutated by DB observer
+        val activeAfterDb = repository.activePlaylist.value
+        assertNotNull(activeAfterDb)
+        assertEquals(2, activeAfterDb!!.items.size)
+        assertEquals("ref_photo", activeAfterDb.items[0].id)
+        assertEquals("sim_photo", activeAfterDb.items[1].id)
+        assertTrue(activeAfterDb.isFinite)
+    }
 }
 
 

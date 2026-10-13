@@ -667,7 +667,7 @@ fun AuraMainContent(
                                     .filter { it.mediaType == targetType }
                                     .filter { it.id != targetItem.id }
                                 val queue = listOf(targetItem) + similarCandidates
-                                repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "See Similar — ${targetItem.title}")
+                                repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "See Similar — ${targetItem.title}", isFinite = true)
                                 
                                 val active = repository.activePlaylist.value
                                 if (active != null && active.items.isNotEmpty()) {

@@ -956,6 +956,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
     fun checkAndReplenishActivePlaylist(currentIndex: Int, totalSize: Int) {
         val current = _activePlaylist.value ?: return
+        if (current.isFinite) return
         val remaining = totalSize - 1 - currentIndex
         if (remaining > LOW_WATER_THRESHOLD || isReplenishing) return
 
