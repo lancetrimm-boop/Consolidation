@@ -92,6 +92,7 @@ fun LibraryScreen(
     val libraryPrefs = remember(repository) { repository.libraryPreferences }
     val gridDensity by (libraryPrefs?.gridDensity ?: MutableStateFlow(160f)).collectAsStateWithLifecycle()
     val autoScrollSpeed by (libraryPrefs?.autoScrollSpeed ?: MutableStateFlow(AutoScrollSpeed.MEDIUM)).collectAsStateWithLifecycle()
+    val visualReadiness by repository.observeVisualIndexReadiness().collectAsStateWithLifecycle(null)
 
     val uiState = LibraryPresentationState(
         mediaItems = mediaItems,
@@ -109,7 +110,8 @@ fun LibraryScreen(
         importProgress = importProgress,
         scanProgress = scanProgress,
         provenanceMap = repository.latestLibraryProvenance.collectAsStateWithLifecycle().value,
-        admissionProgress = repository.presentationMediaStore.admissionProgress.collectAsStateWithLifecycle().value
+        admissionProgress = repository.presentationMediaStore.admissionProgress.collectAsStateWithLifecycle().value,
+        visualReadiness = visualReadiness
     )
 
     LibraryContent(
@@ -178,6 +180,7 @@ fun LibraryScreen(
         },
         deleteLauncher = deleteLauncher,
         onLoadNextPage = { repository.loadNextLibraryPage() },
+        onRetryFailedEnrichment = { repository.retryFailedEnrichment() },
         modifier = modifier
     )
 }
@@ -216,11 +219,13 @@ fun LibraryContent(
     onScrollPositionChange: (Int, Int) -> Unit,
     deleteLauncher: androidx.activity.result.ActivityResultLauncher<androidx.activity.result.IntentSenderRequest>? = null,
     onLoadNextPage: () -> Unit = {},
+    onRetryFailedEnrichment: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val coroutineScope = rememberCoroutineScope()
+    val visualReadiness = state.visualReadiness
 
     // AURA REPAIR: Global search error feedback
     LaunchedEffect(state.searchError) {
@@ -474,6 +479,14 @@ fun LibraryContent(
                             subtitle = "Your complete media collection",
                             modifier = Modifier.weight(1f)
                         )
+
+                        visualReadiness?.let { readiness ->
+                            com.example.ui.components.VisualIndexReadinessPill(
+                                readiness = readiness,
+                                onRetryClick = { onRetryFailedEnrichment() },
+                                modifier = Modifier.padding(end = AuraSpacing.S)
+                            )
+                        }
                         
                         if (state.aiState != AIState.READY && state.aiState != AIState.NOT_INITIALIZED && state.aiState != AIState.DISABLED) {
                             Row(

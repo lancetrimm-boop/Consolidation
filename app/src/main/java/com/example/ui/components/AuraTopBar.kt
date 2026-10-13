@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -93,3 +94,67 @@ fun AuraTopBar(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
     }
 }
+
+@Composable
+fun VisualIndexReadinessPill(
+    readiness: com.example.data.VisualIndexReadiness,
+    onRetryClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val (bgColor, textColor, dotColor) = when (readiness.state) {
+        com.example.data.VisualIndexState.GREEN_READY -> Triple(
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.onPrimaryContainer,
+            androidx.compose.ui.graphics.Color(0xFF2E7D32)
+        )
+        com.example.data.VisualIndexState.YELLOW_INDEXING -> Triple(
+            MaterialTheme.colorScheme.tertiaryContainer,
+            MaterialTheme.colorScheme.onTertiaryContainer,
+            androidx.compose.ui.graphics.Color(0xFFF57F17)
+        )
+        com.example.data.VisualIndexState.RED_INCOMPLETE -> Triple(
+            MaterialTheme.colorScheme.errorContainer,
+            MaterialTheme.colorScheme.onErrorContainer,
+            MaterialTheme.colorScheme.error
+        )
+        com.example.data.VisualIndexState.NEUTRAL_EMPTY -> Triple(
+            MaterialTheme.colorScheme.surfaceVariant,
+            MaterialTheme.colorScheme.onSurfaceVariant,
+            androidx.compose.ui.graphics.Color.Gray
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .background(bgColor, RoundedCornerShape(12.dp))
+            .then(
+                if (readiness.state == com.example.data.VisualIndexState.RED_INCOMPLETE) {
+                    Modifier.foundationClickable(onRetryClick)
+                } else Modifier
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(dotColor, androidx.compose.foundation.shape.CircleShape)
+            )
+            Text(
+                text = readiness.label,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun Modifier.foundationClickable(onClick: () -> Unit): Modifier = this.then(
+    Modifier.clickable(onClick = onClick)
+)

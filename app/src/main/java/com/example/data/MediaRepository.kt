@@ -2060,4 +2060,100 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             }
         } 
     }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeVisualIndexReadiness(): Flow<VisualIndexReadiness> {
+        return _databaseState.flatMapLatest { state ->
+            val db = database
+            if (state != DatabaseState.READY || db == null) {
+                kotlinx.coroutines.flow.flowOf(
+                    VisualIndexReadiness(
+                        state = VisualIndexState.YELLOW_INDEXING,
+                        totalEligible = 0,
+                        verifiedVisualCount = 0,
+                        pendingCount = 0,
+                        processingCount = 0,
+                        failedCount = 0,
+                        label = "Initializing Database...",
+                        isModelReady = false
+                    )
+                )
+            } else {
+                db.semanticRepresentationDao().observeVerifiedVisualCount()
+                    .combine(visibleMediaItems) { verifiedCount, visibleItems ->
+                        val metrics = try { db.mediaDao().getEnrichmentMetrics() } catch (_: Exception) { null }
+                        val totalEligible = metrics?.totalEligible ?: visibleItems.size
+                        val pendingCount = metrics?.textOnlyCount ?: 0
+                        val failedCount = metrics?.failedCount ?: 0
+                        val isProviderReady = mobileCLIPProvider?.isReady() == true
+
+                        val st = when {
+                            totalEligible == 0 -> VisualIndexState.NEUTRAL_EMPTY
+                            !isProviderReady -> VisualIndexState.RED_INCOMPLETE
+                            failedCount > 0 -> VisualIndexState.RED_INCOMPLETE
+                            verifiedCount >= totalEligible && totalEligible > 0 -> VisualIndexState.GREEN_READY
+                            else -> VisualIndexState.YELLOW_INDEXING
+                        }
+
+                        val lbl = when (st) {
+                            VisualIndexState.GREEN_READY -> "Visual Index Ready (100%)"
+                            VisualIndexState.YELLOW_INDEXING -> {
+                                val pct = if (totalEligible > 0) (verifiedCount * 100) / totalEligible else 0
+                                "Indexing Visuals: $verifiedCount / $totalEligible ($pct%)"
+                            }
+                            VisualIndexState.RED_INCOMPLETE -> {
+                                if (!isProviderReady) "Visual Index Engine Loading..."
+                                else "Visual Index Incomplete ($failedCount Failed) — Tap to Retry"
+                            }
+                            VisualIndexState.NEUTRAL_EMPTY -> "No Eligible Media"
+                        }
+
+                        VisualIndexReadiness(
+                            state = st,
+                            totalEligible = totalEligible,
+                            verifiedVisualCount = verifiedCount,
+                            pendingCount = pendingCount,
+                            processingCount = 0,
+                            failedCount = failedCount,
+                            label = lbl,
+                            isModelReady = isProviderReady
+                        )
+                    }
+            }
+        }
+    }
+
+    fun retryFailedEnrichment() {
+        val db = database ?: return
+        scope.launch(Dispatchers.IO) {
+            try {
+                db.mediaDao().recoverStuckEnrichment()
+                applicationContext?.let { ctx ->
+                    reconcileExistingMedia(ctx)
+                    backfillSemantics()
+                    AuraEnrichmentWorker.schedule(ctx)
+                }
+            } catch (e: Exception) {
+                Log.e("MediaRepository", "Error retrying failed enrichment", e)
+            }
+        }
+    }
 }
+
+enum class VisualIndexState {
+    GREEN_READY,
+    YELLOW_INDEXING,
+    RED_INCOMPLETE,
+    NEUTRAL_EMPTY
+}
+
+data class VisualIndexReadiness(
+    val state: VisualIndexState,
+    val totalEligible: Int,
+    val verifiedVisualCount: Int,
+    val pendingCount: Int,
+    val processingCount: Int,
+    val failedCount: Int,
+    val label: String,
+    val isModelReady: Boolean
+)

@@ -65,6 +65,46 @@ interface SemanticRepresentationDao {
     @Query("SELECT COUNT(*) FROM semantic_representations WHERE representationType = :type AND modelId = :modelId AND modelVersion = :version")
     suspend fun countCompatible(type: String, modelId: String, version: Int): Int
 
+    @Query("""
+        SELECT COUNT(DISTINCT m.id) 
+        FROM media_items m 
+        JOIN semantic_representations s ON m.id = s.mediaId 
+        WHERE m.isDeleted = 0 
+          AND m.compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
+          AND s.representationType = :type 
+          AND s.modelId = :modelId 
+          AND s.modelVersion = :version 
+          AND s.dimensionality = :dim 
+          AND length(s.vectorData) = :expectedByteLength
+    """)
+    suspend fun countVerifiedVisual(
+        type: String = "VISUAL",
+        modelId: String = "mobileclip-s0",
+        version: Int = 1,
+        dim: Int = 512,
+        expectedByteLength: Int = 2048
+    ): Int
+
+    @Query("""
+        SELECT COUNT(DISTINCT m.id) 
+        FROM media_items m 
+        JOIN semantic_representations s ON m.id = s.mediaId 
+        WHERE m.isDeleted = 0 
+          AND m.compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
+          AND s.representationType = :type 
+          AND s.modelId = :modelId 
+          AND s.modelVersion = :version 
+          AND s.dimensionality = :dim 
+          AND length(s.vectorData) = :expectedByteLength
+    """)
+    fun observeVerifiedVisualCount(
+        type: String = "VISUAL",
+        modelId: String = "mobileclip-s0",
+        version: Int = 1,
+        dim: Int = 512,
+        expectedByteLength: Int = 2048
+    ): Flow<Int>
+
     @Query("SELECT EXISTS(SELECT 1 FROM semantic_representations WHERE mediaId = :mediaId AND representationType = :type AND modelId = :modelId AND modelVersion = :version)")
     suspend fun exists(mediaId: String, type: String, modelId: String, version: Int): Boolean
 

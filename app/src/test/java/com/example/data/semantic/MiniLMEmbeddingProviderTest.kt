@@ -448,6 +448,40 @@ class MiniLMEmbeddingProviderTest {
             updateFlow()
         }
 
+        override suspend fun countVerifiedVisual(
+            type: String,
+            modelId: String,
+            version: Int,
+            dim: Int,
+            expectedByteLength: Int
+        ): Int {
+            return db.values.count {
+                it.representationType == type &&
+                it.modelId == modelId &&
+                it.modelVersion == version &&
+                it.dimensionality == dim &&
+                it.vectorData.size == expectedByteLength
+            }
+        }
+
+        override fun observeVerifiedVisualCount(
+            type: String,
+            modelId: String,
+            version: Int,
+            dim: Int,
+            expectedByteLength: Int
+        ): Flow<Int> {
+            return _flow.map { list ->
+                list.count {
+                    it.representationType == type &&
+                    it.modelId == modelId &&
+                    it.modelVersion == version &&
+                    it.dimensionality == dim &&
+                    it.vectorData.size == expectedByteLength
+                }
+            }
+        }
+
         private val frameDb = ConcurrentHashMap<String, VideoFrameRepresentationEntity>()
 
         override suspend fun upsertFrame(frame: VideoFrameRepresentationEntity) {

@@ -306,7 +306,8 @@ data class LibraryPresentationState(
     val importProgress: ImportProgressState = ImportProgressState(),
     val scanProgress: ScanProgressState = ScanProgressState(),
     val provenanceMap: Map<String, DecisionProvenance> = emptyMap(),
-    val admissionProgress: com.example.data.mediastore.AdmissionProgress = com.example.data.mediastore.AdmissionProgress()
+    val admissionProgress: com.example.data.mediastore.AdmissionProgress = com.example.data.mediastore.AdmissionProgress(),
+    val visualReadiness: com.example.data.VisualIndexReadiness? = null
 )
 
 /**
