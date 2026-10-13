@@ -2,10 +2,14 @@ package com.example.data.semantic
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
+import android.net.Uri
+import android.os.Build
 import android.util.Log
 import com.example.data.MediaItem
 import com.example.util.MediaThumbnailFetcher
 import kotlinx.coroutines.*
+import java.io.File
 
 /**
  * Service responsible for generating and persisting visual embeddings for MediaItems.
@@ -103,11 +107,14 @@ class DefaultVisualIndexingService(
                 indexImageSingleFrame(context, item, sourceHash, targetVersion)
             }
 
+            val dbWriteStart = System.nanoTime()
             if (representation != null) {
                 repository.saveRepresentation(representation)
                 candidateRetriever.onRepresentationAdded(representation)
+                val dbWriteMs = (System.nanoTime() - dbWriteStart) / 1_000_000
 
                 val strategy = if (isVideo) "ADAPTIVE_SCENE_AWARE" else "FULL_IMAGE"
+                Log.i("VisualIndexingPerf", "PERF_DB_WRITE: token=${item.id.hashCode()} dbWriteMs=$dbWriteMs strategy=$strategy")
                 Log.i("VisualIndexing", "INDEX_SUCCESS: mediaId=${item.id} dim=${representation.dimensionality} strategy=$strategy")
                 EmbeddingResult.Success(representation)
             } else {
@@ -135,10 +142,23 @@ class DefaultVisualIndexingService(
         version: Int
     ): SemanticRepresentation? {
         val uri = item.uriPath.ifEmpty { item.imageUrl }
+        val decodeStart = System.nanoTime()
         // Prefer full-image decode for photos; fall back to thumbnail path
         val bitmap = MediaThumbnailFetcher.loadFullImageForEmbedding(context, uri)
             ?: MediaThumbnailFetcher.getThumbnail(context, uri)
             ?: return null
+        val decodeMs = (System.nanoTime() - decodeStart) / 1_000_000
+
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        val thermalStatus = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            powerManager?.currentThermalStatus ?: -1
+        } else {
+            -1
+        }
+        val nativeHeap = android.os.Debug.getNativeHeapAllocatedSize()
+
+        Log.i("VisualIndexingPerf", "PERF_PHOTO_DECODE: token=${item.id.hashCode()} decodeMs=$decodeMs thermal=$thermalStatus nativeHeapBytes=$nativeHeap")
+
         val result = visualProvider.generateEmbedding(
             mediaId = item.id,
             input = SemanticInput.ExplicitBitmap(bitmap),
@@ -147,35 +167,66 @@ class DefaultVisualIndexingService(
         return (result as? EmbeddingResult.Success)?.representation?.copy(documentVersion = version)
     }
 
-    private suspend fun indexVideoMultiFrame(context: Context, item: MediaItem, sourceHash: String): SemanticRepresentation? {
+    private suspend fun indexVideoMultiFrame(context: Context, item: MediaItem, sourceHash: String): SemanticRepresentation? = withContext(dispatcher) {
         val durationMs = if (item.durationMs > 0) item.durationMs else VideoFrameSampler.getVideoDuration(context, item.uriPath)
         val timestamps = VideoFrameSampler.getSampleTimestamps(durationMs, context, item.uriPath)
 
         val frames = mutableListOf<VideoFrameRepresentation>()
-
-        for (timeUs in timestamps) {
-            val bitmap = MediaThumbnailFetcher.getFrameAtTime(context, item.uriPath, timeUs) ?: continue
-            val result = visualProvider.generateEmbedding(
-                mediaId = item.id,
-                input = SemanticInput.ExplicitBitmap(bitmap),
-                sourceDataHash = sourceHash
-            )
-            if (result is EmbeddingResult.Success) {
-                val rep = result.representation
-                val frameId = "sem_frame_${item.id}_${timeUs}_${visualProvider.descriptor.modelId}_v${visualProvider.descriptor.modelVersion}"
-                frames.add(VideoFrameRepresentation(
-                    id = frameId,
-                    mediaId = item.id,
-                    timestampUs = timeUs,
-                    modelDescriptor = visualProvider.descriptor,
-                    documentVersion = VISUAL_INDEX_VERSION,
-                    dimensionality = visualProvider.descriptor.dimensionality,
-                    vector = rep.vector
-                ))
+        val retriever = MediaMetadataRetriever()
+        try {
+            val uri = if (item.uriPath.startsWith("/")) Uri.fromFile(File(item.uriPath)) else Uri.parse(item.uriPath)
+            if (item.uriPath.startsWith("content://") || item.uriPath.startsWith("file://") || item.uriPath.startsWith("/")) {
+                retriever.setDataSource(context, uri)
+            } else {
+                retriever.setDataSource(item.uriPath)
             }
+            val rotStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION) } catch (_: Exception) { null }
+            val rotation = rotStr?.toIntOrNull() ?: 0
+
+            for (timeUs in timestamps) {
+                val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    retriever.getScaledFrameAtTime(
+                        timeUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        512,
+                        512
+                    )
+                } else {
+                    retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                }
+
+                if (bitmap != null && !bitmap.isRecycled && bitmap.width > 0 && bitmap.height > 0) {
+                    val validBitmap = if (rotation != 0) com.example.util.MediaOrientationUtils.rotateBitmapIfNeeded(bitmap, rotation) else bitmap
+                    val result = visualProvider.generateEmbedding(
+                        mediaId = item.id,
+                        input = SemanticInput.ExplicitBitmap(validBitmap),
+                        sourceDataHash = sourceHash
+                    )
+                    if (result is EmbeddingResult.Success) {
+                        val rep = result.representation
+                        val frameId = "sem_frame_${item.id}_${timeUs}_${visualProvider.descriptor.modelId}_v${visualProvider.descriptor.modelVersion}"
+                        frames.add(VideoFrameRepresentation(
+                            id = frameId,
+                            mediaId = item.id,
+                            timestampUs = timeUs,
+                            modelDescriptor = visualProvider.descriptor,
+                            documentVersion = VISUAL_INDEX_VERSION,
+                            dimensionality = visualProvider.descriptor.dimensionality,
+                            vector = rep.vector
+                        ))
+                    }
+                    if (validBitmap !== bitmap && !bitmap.isRecycled) {
+                        bitmap.recycle()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("VisualIndexing", "Multi-frame video extraction failed for ${item.id}: ${e.message}")
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
         }
 
-        if (frames.isEmpty()) return null
+        if (frames.isEmpty()) return@withContext null
 
         repository.deleteFramesForMedia(item.id)
         repository.saveFrames(frames)
@@ -185,7 +236,7 @@ class DefaultVisualIndexingService(
         val aggregatedVector = VectorMath.maxPool(frameVectors)
         val normalizedVector = VectorMath.l2Normalize(aggregatedVector)
 
-        return SemanticRepresentation(
+        return@withContext SemanticRepresentation(
             id = "sem_${item.id}_visual_${visualProvider.descriptor.modelId}_v${visualProvider.descriptor.modelVersion}",
             mediaId = item.id,
             type = SemanticRepresentationType.VISUAL,

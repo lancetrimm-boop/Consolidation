@@ -47,21 +47,28 @@ class OnnxRuntimeMobileCLIPInferenceEngine(
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private var session: OrtSession? = null
+    private var sessionOptions: OrtSession.SessionOptions? = null
     private var isClosed = false
 
     init {
         try {
+            sessionOptions = OrtSession.SessionOptions().apply {
+                setIntraOpNumThreads(2)
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
+            }
             if (modelBytes != null) {
-                session = env.createSession(modelBytes)
-                Log.i("MobileCLIPInference", "ONNX Session initialized from bytes.")
+                session = env.createSession(modelBytes, sessionOptions)
+                Log.i("MobileCLIPInference", "ONNX Session initialized from bytes with 2 intra-op threads.")
             } else if (modelPath != null) {
-                session = env.createSession(modelPath)
-                Log.i("MobileCLIPInference", "ONNX Session initialized from path: $modelPath")
+                session = env.createSession(modelPath, sessionOptions)
+                Log.i("MobileCLIPInference", "ONNX Session initialized from path: $modelPath with 2 intra-op threads.")
             } else {
                 throw IllegalArgumentException("No model artifact provided.")
             }
         } catch (e: Exception) {
             Log.e("MobileCLIPInference", "Failed to initialize ONNX session", e)
+            sessionOptions?.close()
+            sessionOptions = null
             throw e
         }
     }
@@ -100,6 +107,8 @@ class OnnxRuntimeMobileCLIPInferenceEngine(
         if (!isClosed) {
             session?.close()
             session = null
+            sessionOptions?.close()
+            sessionOptions = null
             env.close()
             isClosed = true
         }

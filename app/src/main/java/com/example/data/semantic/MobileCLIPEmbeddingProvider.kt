@@ -32,6 +32,8 @@ class MobileCLIPEmbeddingProvider(
     companion object {
         private val globalInferenceSemaphore = kotlinx.coroutines.sync.Semaphore(1)
         private const val CENTER_CROP_FRACTION = 0.85f
+        private val threadLocalPixelArray = ThreadLocal.withInitial { IntArray(256 * 256) }
+        private val threadLocalFloatBuffer = ThreadLocal.withInitial { FloatBuffer.allocate(3 * 256 * 256) }
     }
 
     override suspend fun generateEmbedding(
@@ -55,8 +57,17 @@ class MobileCLIPEmbeddingProvider(
         return@withContext try {
             globalInferenceSemaphore.withPermit {
                 android.util.Log.i("QUERY_EMBEDDING", "CLIP_IMAGE_INFER_START: mediaId=$mediaId bitmap=${bitmap.width}x${bitmap.height}")
+                val preprocStart = System.nanoTime()
                 val processedBuffer = preprocessBitmap(bitmap)
+                val preprocMs = (System.nanoTime() - preprocStart) / 1_000_000
+
+                val inferStart = System.nanoTime()
                 val rawEmbedding = engine.infer(processedBuffer, 256, 256)
+                val inferMs = (System.nanoTime() - inferStart) / 1_000_000
+
+                val nativeHeap = android.os.Debug.getNativeHeapAllocatedSize()
+                android.util.Log.i("VisualIndexingPerf", "PERF_TIMING: token=${mediaId.hashCode()} preprocMs=$preprocMs inferMs=$inferMs nativeHeapBytes=$nativeHeap")
+
                 val normalizedEmbedding = VectorMath.l2Normalize(rawEmbedding)
                 android.util.Log.i("QUERY_EMBEDDING", "CLIP_IMAGE_INFER_SUCCESS: dim=${normalizedEmbedding.size}")
                 val representationId = "sem_${mediaId}_visual_${descriptor.modelId}_v${descriptor.modelVersion}"
@@ -98,9 +109,11 @@ class MobileCLIPEmbeddingProvider(
             cropped
         }
         val totalPixels = targetSize * targetSize
-        val pixels = IntArray(totalPixels)
+        val pixels = threadLocalPixelArray.get() ?: IntArray(totalPixels)
         scaledBitmap.getPixels(pixels, 0, targetSize, 0, 0, targetSize, targetSize)
-        val buffer = FloatBuffer.allocate(3 * totalPixels)
+        val buffer = threadLocalFloatBuffer.get() ?: FloatBuffer.allocate(3 * totalPixels)
+        buffer.clear()
+        buffer.rewind()
         val backingArray = buffer.array()
         val gOffset = totalPixels
         val bOffset = 2 * totalPixels
