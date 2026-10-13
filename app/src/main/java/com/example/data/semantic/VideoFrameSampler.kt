@@ -27,6 +27,11 @@ object VideoFrameSampler {
     private const val MAX_SAMPLES_STAGE_8 = 5
     private const val MIN_MULTI_FRAME_DURATION = 2000L
 
+    data class SamplingResult(
+        val timestamps: List<Long>,
+        val analysisDecodeMs: Long
+    )
+
     /**
      * Generates a list of timestamps (in microseconds) to sample from a video.
      * Uses adaptive sampling if context and URI are provided, otherwise falls back to deterministic.
@@ -35,16 +40,27 @@ object VideoFrameSampler {
         durationMs: Long,
         context: Context? = null,
         uriString: String? = null
-    ): List<Long> = withContext(Dispatchers.IO) {
+    ): List<Long> {
+        return getSampleTimestampsWithTiming(durationMs, context, uriString).timestamps
+    }
+
+    /**
+     * Overload that returns both sampled timestamps and the time spent decoding analysis frames in milliseconds.
+     */
+    suspend fun getSampleTimestampsWithTiming(
+        durationMs: Long,
+        context: Context? = null,
+        uriString: String? = null
+    ): SamplingResult = withContext(Dispatchers.IO) {
         if (context == null || uriString == null || durationMs <= MIN_MULTI_FRAME_DURATION) {
-            return@withContext getDeterministicTimestamps(durationMs)
+            return@withContext SamplingResult(getDeterministicTimestamps(durationMs), 0L)
         }
 
         try {
-            getAdaptiveTimestamps(context, uriString, durationMs)
+            getAdaptiveTimestampsWithTiming(context, uriString, durationMs)
         } catch (e: Exception) {
             Log.w(TAG, "Adaptive sampling failed for $uriString, falling back to deterministic (DETERMINISTIC_FALLBACK)", e)
-            getDeterministicTimestamps(durationMs)
+            SamplingResult(getDeterministicTimestamps(durationMs), 0L)
         }
     }
 
@@ -78,8 +94,9 @@ object VideoFrameSampler {
     /**
      * Stage 9 adaptive strategy: Scan video for visual changes and select key frames.
      */
-    private fun getAdaptiveTimestamps(context: Context, uriString: String, durationMs: Long): List<Long> {
+    private fun getAdaptiveTimestampsWithTiming(context: Context, uriString: String, durationMs: Long): SamplingResult {
         val retriever = MediaMetadataRetriever()
+        var totalAnalysisDecodeMs = 0L
         return try {
             retriever.setDataSource(context, Uri.parse(uriString))
             
@@ -90,7 +107,10 @@ object VideoFrameSampler {
             var prevBitmap: Bitmap? = null
             
             for (timeUs in analysisPoints) {
+                val decodeStart = System.nanoTime()
                 val currentBitmap = extractAnalysisFrame(retriever, timeUs)
+                totalAnalysisDecodeMs += (System.nanoTime() - decodeStart) / 1_000_000
+
                 if (currentBitmap != null) {
                     if (prevBitmap != null) {
                         val score = VisualChangeDetector.calculateChangeScore(prevBitmap, currentBitmap)
@@ -105,7 +125,7 @@ object VideoFrameSampler {
             }
             prevBitmap?.recycle()
 
-            if (changes.isEmpty()) return getDeterministicTimestamps(durationMs)
+            if (changes.isEmpty()) return SamplingResult(getDeterministicTimestamps(durationMs), totalAnalysisDecodeMs)
 
             // 2. Key Frame Selection
             val selected = mutableListOf<Long>()
@@ -129,7 +149,7 @@ object VideoFrameSampler {
                 }
             }
 
-            selected.sorted()
+            SamplingResult(selected.sorted(), totalAnalysisDecodeMs)
         } finally {
             try { retriever.release() } catch (_: Exception) {}
         }

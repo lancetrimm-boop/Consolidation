@@ -172,12 +172,14 @@ class DefaultVisualIndexingService(
         val durationMs = if (item.durationMs > 0) item.durationMs else VideoFrameSampler.getVideoDuration(context, item.uriPath)
         
         val samplerStart = System.nanoTime()
-        val timestamps = VideoFrameSampler.getSampleTimestamps(durationMs, context, item.uriPath)
+        val samplingResult = VideoFrameSampler.getSampleTimestampsWithTiming(durationMs, context, item.uriPath)
+        val timestamps = samplingResult.timestamps
+        val analysisDecodeMs = samplingResult.analysisDecodeMs
         val samplerMs = (System.nanoTime() - samplerStart) / 1_000_000
 
         val frames = mutableListOf<VideoFrameRepresentation>()
         val retriever = MediaMetadataRetriever()
-        var totalDecodeMs = 0L
+        var inferenceDecodeMs = 0L
         try {
             val uri = if (item.uriPath.startsWith("/")) Uri.fromFile(File(item.uriPath)) else Uri.parse(item.uriPath)
             if (item.uriPath.startsWith("content://") || item.uriPath.startsWith("file://") || item.uriPath.startsWith("/")) {
@@ -200,7 +202,7 @@ class DefaultVisualIndexingService(
                 } else {
                     retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 }
-                totalDecodeMs += (System.nanoTime() - frameDecodeStart) / 1_000_000
+                inferenceDecodeMs += (System.nanoTime() - frameDecodeStart) / 1_000_000
 
                 if (bitmap != null && !bitmap.isRecycled && bitmap.width > 0 && bitmap.height > 0) {
                     val validBitmap = if (rotation != 0) com.example.util.MediaOrientationUtils.rotateBitmapIfNeeded(bitmap, rotation) else bitmap
@@ -240,12 +242,9 @@ class DefaultVisualIndexingService(
         }
         val dbSaveMs = (System.nanoTime() - dbSaveStart) / 1_000_000
         val videoTotalMs = (System.nanoTime() - videoStart) / 1_000_000
-        Log.i("VisualIndexingPerf", "PERF_VIDEO_SUMMARY: token=${item.id.hashCode()} durationMs=$durationMs sampleCount=${timestamps.size} samplerMs=$samplerMs decodeMs=$totalDecodeMs dbSaveMs=$dbSaveMs videoTotalMs=$videoTotalMs")
+        Log.i("VisualIndexingPerf", "PERF_VIDEO_SUMMARY: token=${item.id.hashCode()} durationMs=$durationMs sampleCount=${timestamps.size} samplerMs=$samplerMs analysisDecodeMs=$analysisDecodeMs inferenceDecodeMs=$inferenceDecodeMs dbSaveMs=$dbSaveMs videoTotalMs=$videoTotalMs")
 
         if (frames.isEmpty()) return@withContext null
-
-        repository.deleteFramesForMedia(item.id)
-        repository.saveFrames(frames)
 
         val frameVectors = frames.map { it.vector }
         // Max-pool across frames then L2-normalize
