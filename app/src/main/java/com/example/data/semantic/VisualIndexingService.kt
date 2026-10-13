@@ -168,11 +168,16 @@ class DefaultVisualIndexingService(
     }
 
     private suspend fun indexVideoMultiFrame(context: Context, item: MediaItem, sourceHash: String): SemanticRepresentation? = withContext(dispatcher) {
+        val videoStart = System.nanoTime()
         val durationMs = if (item.durationMs > 0) item.durationMs else VideoFrameSampler.getVideoDuration(context, item.uriPath)
+        
+        val samplerStart = System.nanoTime()
         val timestamps = VideoFrameSampler.getSampleTimestamps(durationMs, context, item.uriPath)
+        val samplerMs = (System.nanoTime() - samplerStart) / 1_000_000
 
         val frames = mutableListOf<VideoFrameRepresentation>()
         val retriever = MediaMetadataRetriever()
+        var totalDecodeMs = 0L
         try {
             val uri = if (item.uriPath.startsWith("/")) Uri.fromFile(File(item.uriPath)) else Uri.parse(item.uriPath)
             if (item.uriPath.startsWith("content://") || item.uriPath.startsWith("file://") || item.uriPath.startsWith("/")) {
@@ -184,6 +189,7 @@ class DefaultVisualIndexingService(
             val rotation = rotStr?.toIntOrNull() ?: 0
 
             for (timeUs in timestamps) {
+                val frameDecodeStart = System.nanoTime()
                 val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                     retriever.getScaledFrameAtTime(
                         timeUs,
@@ -194,6 +200,7 @@ class DefaultVisualIndexingService(
                 } else {
                     retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                 }
+                totalDecodeMs += (System.nanoTime() - frameDecodeStart) / 1_000_000
 
                 if (bitmap != null && !bitmap.isRecycled && bitmap.width > 0 && bitmap.height > 0) {
                     val validBitmap = if (rotation != 0) com.example.util.MediaOrientationUtils.rotateBitmapIfNeeded(bitmap, rotation) else bitmap
@@ -225,6 +232,15 @@ class DefaultVisualIndexingService(
         } finally {
             try { retriever.release() } catch (_: Exception) {}
         }
+
+        val dbSaveStart = System.nanoTime()
+        if (frames.isNotEmpty()) {
+            repository.deleteFramesForMedia(item.id)
+            repository.saveFrames(frames)
+        }
+        val dbSaveMs = (System.nanoTime() - dbSaveStart) / 1_000_000
+        val videoTotalMs = (System.nanoTime() - videoStart) / 1_000_000
+        Log.i("VisualIndexingPerf", "PERF_VIDEO_SUMMARY: token=${item.id.hashCode()} durationMs=$durationMs sampleCount=${timestamps.size} samplerMs=$samplerMs decodeMs=$totalDecodeMs dbSaveMs=$dbSaveMs videoTotalMs=$videoTotalMs")
 
         if (frames.isEmpty()) return@withContext null
 
