@@ -29,10 +29,11 @@ interface MediaDao {
     suspend fun getPendingAnalysisBatch(limit: Int): List<MediaEntity>
 
     @Query("""
-        SELECT * FROM media_items 
-        WHERE isDeleted = 0 
+        SELECT * FROM media_items
+        WHERE isDeleted = 0
         AND compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
         AND enrichmentStatus IN ('PENDING', 'FAILED_RETRYABLE', 'TEXT_ONLY', 'VISUAL_ONLY')
+        AND enrichmentFailureCount < 3
         ORDER BY lastEnrichmentAttemptTimestamp ASC, lastViewedTimestamp DESC, dateAdded DESC
         LIMIT :limit
     """)
@@ -41,11 +42,21 @@ interface MediaDao {
     @Query("UPDATE media_items SET enrichmentStatus = :status, lastEnrichmentAttemptTimestamp = :timestamp WHERE id = :id")
     suspend fun updateEnrichmentStatus(id: String, status: String, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE media_items SET enrichmentStatus = :status, enrichmentFailureCount = enrichmentFailureCount + 1, lastEnrichmentAttemptTimestamp = :timestamp WHERE id = :id")
+    @Query("UPDATE media_items SET enrichmentStatus = :status, enrichmentFailureCount = 3, lastEnrichmentAttemptTimestamp = :timestamp WHERE id = :id")
     suspend fun recordEnrichmentFailure(id: String, status: String, timestamp: Long = System.currentTimeMillis())
 
     @Query("UPDATE media_items SET enrichmentStatus = 'PENDING' WHERE enrichmentStatus = 'PROCESSING'")
     suspend fun recoverStuckEnrichment()
+
+    @Query("""
+        UPDATE media_items
+        SET enrichmentFailureCount = 3
+        WHERE isDeleted = 0
+        AND compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
+        AND id NOT IN (SELECT mediaId FROM semantic_representations WHERE representationType = 'VISUAL' AND modelId = 'mobileclip-s0')
+        AND enrichmentFailureCount < 3
+    """)
+    suspend fun markUnextractableMediaAsTerminal()
 
     @Query("SELECT COUNT(*) FROM media_items WHERE isDeleted = 0 AND enrichmentStatus IN ('COMPLETE', 'TEXT_ONLY', 'VISUAL_ONLY')")
     suspend fun getEnrichedCount(): Int
@@ -130,25 +141,26 @@ interface MediaDao {
     suspend fun getCount(): Int
 
     @Query("""
-        SELECT 
-            COALESCE(SUM(exposureCount), 0) as totalExposures, 
-            COALESCE(SUM(playCount), 0) as totalViews, 
+        SELECT
+            COALESCE(SUM(exposureCount), 0) as totalExposures,
+            COALESCE(SUM(playCount), 0) as totalViews,
             COUNT(CASE WHEN isFavorite = 1 THEN 1 END) as favoriteCount,
             COALESCE(SUM(durationMs), 0) as totalDurationMs,
             COUNT(*) as itemCount
-        FROM media_items 
+        FROM media_items
         WHERE isDeleted = 0 AND compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
     """)
     suspend fun getEngagementMetrics(): EngagementMetrics
 
     @Query("""
-        SELECT 
+        SELECT
             COUNT(*) as totalEligible,
             COUNT(CASE WHEN enrichmentStatus IN ('COMPLETE', 'TEXT_ONLY') THEN 1 END) as textCount,
             COUNT(CASE WHEN enrichmentStatus IN ('COMPLETE', 'VISUAL_ONLY') THEN 1 END) as visualCount,
             COUNT(CASE WHEN enrichmentStatus = 'COMPLETE' THEN 1 END) as completeCount,
             COUNT(CASE WHEN enrichmentStatus = 'TEXT_ONLY' THEN 1 END) as textOnlyCount,
-            COUNT(CASE WHEN enrichmentStatus IN ('FAILED_RETRYABLE', 'FAILED_PERMANENT') THEN 1 END) as failedCount
+            COUNT(CASE WHEN enrichmentStatus IN ('FAILED_RETRYABLE', 'FAILED_PERMANENT') THEN 1 END) as failedCount,
+            COUNT(CASE WHEN enrichmentFailureCount >= 3 OR enrichmentStatus = 'FAILED_PERMANENT' THEN 1 END) as terminalFailedCount
         FROM media_items
         WHERE isDeleted = 0 AND compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
     """)
@@ -165,10 +177,10 @@ interface MediaDao {
     suspend fun getMediaBatch(limit: Int, offset: Int): List<MediaEntity>
 
     @Query("""
-        SELECT contentHash, COUNT(*) as count 
-        FROM media_items 
-        WHERE isDeleted = 0 
-        AND contentHash IS NOT NULL 
+        SELECT contentHash, COUNT(*) as count
+        FROM media_items
+        WHERE isDeleted = 0
+        AND contentHash IS NOT NULL
         GROUP BY contentHash
     """)
     suspend fun getContentHashFrequencies(): List<ContentHashFrequency>
@@ -290,10 +302,10 @@ interface AISkipDao {
     suspend fun getTotalWatchedDestinations(): Int
 
     @Query("""
-        SELECT mediaId, COUNT(*) as count 
-        FROM ai_skip_events 
-        WHERE eventType IN ('SKIP_FORWARD', 'REPEATED_SKIP') 
-        AND mediaId IN (:ids) 
+        SELECT mediaId, COUNT(*) as count
+        FROM ai_skip_events
+        WHERE eventType IN ('SKIP_FORWARD', 'REPEATED_SKIP')
+        AND mediaId IN (:ids)
         GROUP BY mediaId
     """)
     suspend fun getSkipCountsForBatch(ids: List<String>): List<MediaSkipCount>
@@ -401,7 +413,7 @@ interface PlaybackErrorLogDao {
 
     @Query("SELECT * FROM playback_error_logs ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentErrorsBounded(limit: Int): Flow<List<PlaybackErrorLogEntity>>
-    
+
     @Query("UPDATE playback_error_logs SET recoveryAttempted = :attempted, recoverySuccessful = :successful WHERE id = :id")
     suspend fun updateRecoveryStatus(id: Long, attempted: Boolean, successful: Boolean?)
 

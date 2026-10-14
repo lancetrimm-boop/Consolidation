@@ -95,12 +95,30 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      
+
       val releaseSigningConfig = signingConfigs.getByName("release")
       if (releaseSigningConfig.storeFile != null && releaseSigningConfig.storePassword != null) {
         signingConfig = releaseSigningConfig
       } else {
-        signingConfig = signingConfigs.getByName("debug")
+        // Enforce fail-closed check via task graph execution hook
+        gradle.taskGraph.whenReady {
+          val requiresReleaseSigning = allTasks.any { task ->
+            val path = task.path
+            val name = task.name
+            val isReleaseTask = path.contains("Release", ignoreCase = true) || name.contains("Release", ignoreCase = true)
+            val isAggregateTask = (name == "assemble" || name == "build" || name == "bundle") &&
+                                  !path.contains("Debug", ignoreCase = true) &&
+                                  !path.contains("Test", ignoreCase = true)
+
+            (isReleaseTask || isAggregateTask) &&
+            !path.contains("Debug", ignoreCase = true) &&
+            !path.contains("Test", ignoreCase = true) &&
+            !path.contains("Lint", ignoreCase = true)
+          }
+          if (requiresReleaseSigning) {
+            throw GradleException("FATAL: Production release signing credentials (keystore, storePassword, keyPassword) are missing. Release builds and aggregate packaging tasks cannot be signed with debug keys or unsigned.")
+          }
+        }
       }
     }
     debug {
@@ -116,24 +134,22 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { 
-    unitTests { 
-      isIncludeAndroidResources = true 
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
       isReturnDefaultValues = true
-    } 
+    }
   }
 
   sourceSets {
-    getByName("debug") {
-      // Allow debug builds to bundle models directly for local testing/AS Deploy
-      // Release builds continue to use Play Asset Delivery (:model_pack)
-      assets.setSrcDirs(listOf("src/main/assets", "${project.rootDir}/model_pack/src/main/assets"))
+    getByName("main") {
+      assets.setSrcDirs(listOf("src/main/assets"))
     }
   }
 }
 
 gradle.taskGraph.whenReady {
-  val hasReleaseTask = hasTask(":app:bundleConsumerRelease") || 
+  val hasReleaseTask = hasTask(":app:bundleConsumerRelease") ||
                        hasTask(":app:bundleDeveloperRelease") ||
                        hasTask(":app:assembleConsumerRelease") ||
                        hasTask(":app:assembleDeveloperRelease")

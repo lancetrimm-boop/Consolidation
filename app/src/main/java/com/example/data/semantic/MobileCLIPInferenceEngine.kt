@@ -87,7 +87,8 @@ class OnnxRuntimeMobileCLIPInferenceEngine(
         val shape = longArrayOf(1, 3, height.toLong(), width.toLong())
         val imageTensor = OnnxTensor.createTensor(env, imageBuffer, shape)
 
-        val inputs = mapOf("image" to imageTensor)
+        val inputName = currentSession.inputNames.firstOrNull() ?: "image"
+        val inputs = mapOf(inputName to imageTensor)
 
         return try {
             currentSession.run(inputs).use { results ->

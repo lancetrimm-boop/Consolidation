@@ -68,7 +68,8 @@ class OnnxRuntimeMobileCLIPTextInferenceEngine(
         val shape = longArrayOf(1, 77)
         val textTensor = OnnxTensor.createTensor(env, LongBuffer.wrap(inputIds), shape)
 
-        val inputs = mapOf("text" to textTensor)
+        val inputName = currentSession.inputNames.firstOrNull() ?: "text"
+        val inputs = mapOf(inputName to textTensor)
 
         return try {
             currentSession.run(inputs).use { results ->

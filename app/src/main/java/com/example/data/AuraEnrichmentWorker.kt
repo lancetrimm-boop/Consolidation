@@ -95,14 +95,18 @@ class AuraEnrichmentWorker(
                 // Claim for processing
                 mediaDao.updateEnrichmentStatus(entity.id, EnrichmentStatus.PROCESSING.name)
                 
-                val finalStatus = processItemEnrichment(repository, entity, hasVisualReady)
+                val (finalStatus, visualFailed) = processItemEnrichment(repository, entity, hasVisualReady)
                 
                 // Progress is ONLY counted if the status actually changed relative to the BEFORE-PROCESSING state
                 if (finalStatus.name != entity.enrichmentStatus) {
                     totalProgressMade++
                 }
                 
-                mediaDao.updateEnrichmentStatus(entity.id, finalStatus.name)
+                if (visualFailed) {
+                    mediaDao.recordEnrichmentFailure(entity.id, finalStatus.name)
+                } else {
+                    mediaDao.updateEnrichmentStatus(entity.id, finalStatus.name)
+                }
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected error processing item ${entity.id}", e)
@@ -113,9 +117,15 @@ class AuraEnrichmentWorker(
         Log.i(TAG, "Batch session finished. Processed: ${batch.size}, Progress Items: $totalProgressMade")
         logStats(repository)
 
-        // Only reschedule if we made REAL progress in this batch
+        val metrics = try { mediaDao.getEnrichmentMetrics() } catch (_: Exception) { null }
+        val hasPendingItems = metrics != null && (metrics.totalEligible > metrics.completeCount)
+
         if (!isStopped && totalProgressMade > 0) {
             schedule(applicationContext)
+            return@withContext Result.success()
+        } else if (!isStopped && hasPendingItems && !hasVisualReady) {
+            Log.i(TAG, "Visual engine pending; scheduling retry to resume enrichment once AI models load.")
+            return@withContext Result.retry()
         }
 
         Result.success()
@@ -125,12 +135,13 @@ class AuraEnrichmentWorker(
         repository: MediaRepository, 
         entity: MediaEntity,
         hasVisualReady: Boolean
-    ): EnrichmentStatus {
+    ): Pair<EnrichmentStatus, Boolean> {
         val initialStatus = try { EnrichmentStatus.valueOf(entity.enrichmentStatus) } catch (e: Exception) { EnrichmentStatus.PENDING }
         
         // Modal attempts are independent
         val contentResult = processContentEnrichment(repository, entity)
         val visualResult = if (hasVisualReady) processVisualEnrichment(repository, entity) else ModalityResult.ENGINE_MISSING
+        val visualFailed = (visualResult == ModalityResult.FAILURE)
         
         // Modal success definition (New OR Previously successful)
         val hasText = contentResult == ModalityResult.SUCCESS || 
@@ -152,7 +163,7 @@ class AuraEnrichmentWorker(
 
         android.util.Log.d("AuraSemanticTrace", "ENRICHMENT_ITEM mediaId=${entity.id} initial=${entity.enrichmentStatus} final=${finalStatus.name} text=$contentResult visual=$visualResult")
         
-        return finalStatus
+        return Pair(finalStatus, visualFailed)
     }
 
     private enum class ModalityResult { SUCCESS, FAILURE, ALREADY_PRESENT, ENGINE_MISSING }

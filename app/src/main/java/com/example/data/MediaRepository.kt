@@ -112,8 +112,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     @Volatile var conversionQueueRepository: ConversionQueueRepository? = null; private set
     @Volatile var semanticRepresentationRepository: SemanticRepresentationRepository? = null; private set
     @Volatile var embeddingProvider: EmbeddingProvider? = null; private set
-    @Volatile var mobileCLIPProvider: MobileCLIPEmbeddingProvider? = null; private set
-    @Volatile var mobileClipTextProvider: MobileCLIPTextEmbeddingProvider? = null; private set
+    @Volatile var mobileCLIPProvider: EmbeddingProvider? = null; private set
+    @Volatile var mobileClipTextProvider: EmbeddingProvider? = null; private set
     @Volatile var semanticCandidateRetriever: SemanticCandidateRetriever? = null; private set
     @Volatile var semanticSearchService: SemanticSearchService? = null; private set
     @Volatile var semanticIndexingService: SemanticIndexingService? = null; private set
@@ -502,6 +502,11 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     initAI(context)
                     _databaseState.value = DatabaseState.READY
                     startDatabaseObservers(db)
+                    try {
+                        db.mediaDao().markUnextractableMediaAsTerminal()
+                    } catch (e: Exception) {
+                        Log.w("MediaRepository", "Failed to mark unextractable media as terminal", e)
+                    }
                     launch { backfillSemantics(); AuraEnrichmentWorker.schedule(context) }
                     LegacyDatabaseEncryptionMigrator.cleanupLegacyBackups(context)
                 } catch (t: Throwable) { if (t !is CancellationException) { _databaseErrorMessage.value = t.message; _databaseState.value = DatabaseState.TRANSITION_FAILED } }
@@ -642,12 +647,12 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             hybridSearchEngine = DefaultHybridSearchEngine(intelligenceCore!!)
             try {
                 val clipEngine = try {
-                    OnnxRuntimeMobileCLIPInferenceEngine(modelPath = com.example.util.ModelAssetLoader.getLocalPath(context, "models/mobileclip_s0_image.onnx"))
+                    OnnxRuntimeMobileCLIPInferenceEngine(modelPath = com.example.util.ModelAssetLoader.getLocalPath(context, "models/tinyclip_vision.onnx"))
                 } catch (e: Exception) {
-                    Log.w("MediaRepository", "Failed to load MobileCLIP ONNX image model, falling back to LocalMobileCLIPInferenceEngine", e)
+                    Log.w("MediaRepository", "Failed to load TinyCLIP ONNX image model, falling back to LocalMobileCLIPInferenceEngine", e)
                     LocalMobileCLIPInferenceEngine()
                 }
-                mobileCLIPProvider = MobileCLIPEmbeddingProvider(clipEngine)
+                mobileCLIPProvider = TinyCLIPEmbeddingProvider(clipEngine)
 
                 val clipTokenizer = try {
                     ClipBpeTokenizer.fromAssets(context.assets.open("models/mobileclip_vocab.json").use { it.bufferedReader().readText() }, context.assets.open("models/mobileclip_merges.txt").use { it.bufferedReader().readText() })
@@ -655,11 +660,11 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     ClipBpeTokenizer(emptyMap(), emptyList())
                 }
                 val textEngine = try {
-                    OnnxRuntimeMobileCLIPTextInferenceEngine(modelPath = com.example.util.ModelAssetLoader.getLocalPath(context, "models/mobileclip_s0_text.onnx"))
+                    OnnxRuntimeMobileCLIPTextInferenceEngine(modelPath = com.example.util.ModelAssetLoader.getLocalPath(context, "models/tinyclip_text.onnx"))
                 } catch (e: Exception) {
                     LocalMobileCLIPTextInferenceEngine()
                 }
-                mobileClipTextProvider = MobileCLIPTextEmbeddingProvider(textEngine, clipTokenizer)
+                mobileClipTextProvider = TinyCLIPTextEmbeddingProvider(textEngine, clipTokenizer)
 
                 visualIndexingService = DefaultVisualIndexingService(mobileCLIPProvider!!, retriever, semanticRepresentationRepository!!)
                 scope.launch { try { visualIndexingService?.initializeIndex() } catch (e: Exception) {} }
@@ -667,12 +672,13 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 router.visualProvider = DefaultMobileCLIPVisualRetriever(DefaultSemanticSearchService(mobileClipTextProvider!!, retriever))
                 hybridSearchEngine = DefaultHybridSearchEngine(intelligenceCore!!)
             } catch (e: Exception) {
-                Log.e("MediaRepository", "MobileCLIP initialization error", e)
+                Log.e("MediaRepository", "TinyCLIP initialization error", e)
                 if (mobileCLIPProvider == null) {
-                    mobileCLIPProvider = MobileCLIPEmbeddingProvider(LocalMobileCLIPInferenceEngine())
+                    mobileCLIPProvider = TinyCLIPEmbeddingProvider(LocalMobileCLIPInferenceEngine())
                 }
             }
             _aiState.value = AIState.READY
+            try { AuraEnrichmentWorker.schedule(context) } catch (e: Exception) { Log.w("MediaRepository", "Failed to schedule AuraEnrichmentWorker", e) }
         } catch (e: Exception) { _aiState.value = AIState.ERROR }
     }
 
@@ -2083,20 +2089,29 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     .combine(visibleMediaItems) { verifiedCount, visibleItems ->
                         val metrics = try { db.mediaDao().getEnrichmentMetrics() } catch (_: Exception) { null }
                         val totalEligible = metrics?.totalEligible ?: visibleItems.size
-                        val pendingCount = metrics?.textOnlyCount ?: 0
+                        val terminalFailedCount = metrics?.terminalFailedCount ?: 0
+                        val pendingCount = maxOf(0, totalEligible - verifiedCount - terminalFailedCount)
                         val failedCount = metrics?.failedCount ?: 0
                         val isProviderReady = mobileCLIPProvider?.isReady() == true
+
+                        val isCompleteWithFailures = (verifiedCount + terminalFailedCount >= totalEligible) && totalEligible > 0
 
                         val st = when {
                             totalEligible == 0 -> VisualIndexState.NEUTRAL_EMPTY
                             !isProviderReady -> VisualIndexState.RED_INCOMPLETE
                             failedCount > 0 -> VisualIndexState.RED_INCOMPLETE
-                            verifiedCount >= totalEligible && totalEligible > 0 -> VisualIndexState.GREEN_READY
+                            isCompleteWithFailures || (verifiedCount >= totalEligible && totalEligible > 0) -> VisualIndexState.GREEN_READY
                             else -> VisualIndexState.YELLOW_INDEXING
                         }
 
                         val lbl = when (st) {
-                            VisualIndexState.GREEN_READY -> "Visual Index Ready (100%)"
+                            VisualIndexState.GREEN_READY -> {
+                                if (terminalFailedCount > 0) {
+                                    "Visual Index Ready — $verifiedCount indexed, $terminalFailedCount skipped"
+                                } else {
+                                    "Visual Index Ready (100%)"
+                                }
+                            }
                             VisualIndexState.YELLOW_INDEXING -> {
                                 val pct = if (totalEligible > 0) (verifiedCount * 100) / totalEligible else 0
                                 "Indexing Visuals: $verifiedCount / $totalEligible ($pct%)"

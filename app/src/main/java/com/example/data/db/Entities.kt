@@ -78,7 +78,8 @@ data class EnrichmentMetrics(
     val visualCount: Int,
     val completeCount: Int,
     val textOnlyCount: Int,
-    val failedCount: Int
+    val failedCount: Int,
+    val terminalFailedCount: Int = 0
 )
 
 @Entity(tableName = "pairwise_outcomes")
