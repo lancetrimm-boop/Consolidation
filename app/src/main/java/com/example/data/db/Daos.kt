@@ -32,13 +32,14 @@ interface MediaDao {
      * Progressive enrichment queue: newest and most-engaged items first so
      * See Similar / search feel useful within minutes on a large library.
      * Older items backfill in the background.
+     * Allows up to 5 attempts so transient decode/thumbnail errors are not terminal.
      */
     @Query("""
         SELECT * FROM media_items
         WHERE isDeleted = 0
         AND compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
         AND enrichmentStatus IN ('PENDING', 'FAILED_RETRYABLE', 'TEXT_ONLY', 'VISUAL_ONLY')
-        AND enrichmentFailureCount < 3
+        AND enrichmentFailureCount < 5
         ORDER BY
             dateAdded DESC,
             lastViewedTimestamp DESC,
@@ -51,19 +52,47 @@ interface MediaDao {
     @Query("UPDATE media_items SET enrichmentStatus = :status, lastEnrichmentAttemptTimestamp = :timestamp WHERE id = :id")
     suspend fun updateEnrichmentStatus(id: String, status: String, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE media_items SET enrichmentStatus = :status, enrichmentFailureCount = 3, lastEnrichmentAttemptTimestamp = :timestamp WHERE id = :id")
+    /**
+     * Increment failure count (up to 5) rather than immediately terminal-locking.
+     * Transient frame decode / thumbnail / resource errors must be retryable.
+     */
+    @Query("""
+        UPDATE media_items
+        SET enrichmentStatus = :status,
+            enrichmentFailureCount = MIN(enrichmentFailureCount + 1, 5),
+            lastEnrichmentAttemptTimestamp = :timestamp
+        WHERE id = :id
+    """)
     suspend fun recordEnrichmentFailure(id: String, status: String, timestamp: Long = System.currentTimeMillis())
 
-    @Query("UPDATE media_items SET enrichmentStatus = 'PENDING' WHERE enrichmentStatus = 'PROCESSING'")
+    /**
+     * Recover stuck PROCESSING rows and automatically re-queue items that hit
+     * transient failures (failureCount < 5) so enrichment can resume without
+     * requiring the user to tap "retry".
+     */
+    @Query("""
+        UPDATE media_items
+        SET enrichmentStatus = 'PENDING',
+            enrichmentFailureCount = CASE
+                WHEN enrichmentFailureCount >= 5 THEN enrichmentFailureCount
+                ELSE 0
+            END
+        WHERE enrichmentStatus = 'PROCESSING'
+           OR (
+                enrichmentStatus IN ('FAILED_RETRYABLE', 'PENDING', 'TEXT_ONLY', 'VISUAL_ONLY')
+                AND enrichmentFailureCount > 0
+                AND enrichmentFailureCount < 5
+           )
+    """)
     suspend fun recoverStuckEnrichment()
 
     @Query("""
         UPDATE media_items
-        SET enrichmentFailureCount = 3
+        SET enrichmentFailureCount = 5
         WHERE isDeleted = 0
         AND compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
         AND id NOT IN (SELECT mediaId FROM semantic_representations WHERE representationType = 'VISUAL' AND modelId = 'mobileclip-s0')
-        AND enrichmentFailureCount < 3
+        AND enrichmentFailureCount < 5
     """)
     suspend fun markUnextractableMediaAsTerminal()
 
@@ -169,7 +198,7 @@ interface MediaDao {
             COUNT(CASE WHEN enrichmentStatus = 'COMPLETE' THEN 1 END) as completeCount,
             COUNT(CASE WHEN enrichmentStatus = 'TEXT_ONLY' THEN 1 END) as textOnlyCount,
             COUNT(CASE WHEN enrichmentStatus IN ('FAILED_RETRYABLE', 'FAILED_PERMANENT') THEN 1 END) as failedCount,
-            COUNT(CASE WHEN enrichmentFailureCount >= 3 OR enrichmentStatus = 'FAILED_PERMANENT' THEN 1 END) as terminalFailedCount
+            COUNT(CASE WHEN enrichmentFailureCount >= 5 OR enrichmentStatus = 'FAILED_PERMANENT' THEN 1 END) as terminalFailedCount
         FROM media_items
         WHERE isDeleted = 0 AND compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
     """)
