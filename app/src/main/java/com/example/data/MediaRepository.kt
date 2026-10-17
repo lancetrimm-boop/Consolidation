@@ -503,6 +503,24 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     _databaseState.value = DatabaseState.READY
                     startDatabaseObservers(db)
                     try {
+                        val libPrefs = libraryPreferences
+                        if (libPrefs != null && libPrefs.getVisualIndexPipelineVersion() < 2) {
+                            try {
+                                val samplePhoto = db.mediaDao().getNextEnrichmentBatch(1).firstOrNull()
+                                if (samplePhoto != null && samplePhoto.uriPath.isNotBlank()) {
+                                    val decoded = com.example.util.MediaThumbnailFetcher.loadFullImageForEmbedding(context, samplePhoto.uriPath)
+                                    Log.i("MediaRepository", "Gate 1 sample decode check: success=${decoded != null}")
+                                    if (decoded != null && !decoded.isRecycled) decoded.recycle()
+                                }
+                            } catch (_: Exception) {}
+                            db.mediaDao().autoHealStrandedEnrichment()
+                            libPrefs.setVisualIndexPipelineVersion(2)
+                            Log.i("MediaRepository", "Auto-healed stranded visual index records to pipeline version 2")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("MediaRepository", "Error during visual index auto-healing", e)
+                    }
+                    try {
                         db.mediaDao().markUnextractableMediaAsTerminal()
                     } catch (e: Exception) {
                         Log.w("MediaRepository", "Failed to mark unextractable media as terminal", e)
@@ -2086,35 +2104,41 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 )
             } else {
                 db.semanticRepresentationDao().observeVerifiedVisualCount()
-                    .combine(visibleMediaItems) { verifiedCount, visibleItems ->
+                    .combine(visibleMediaItems) { rawVerifiedCount, visibleItems ->
                         val metrics = try { db.mediaDao().getEnrichmentMetrics() } catch (_: Exception) { null }
+                        val verifiedCount = maxOf(rawVerifiedCount, metrics?.visualCount ?: 0)
                         val totalEligible = metrics?.totalEligible ?: visibleItems.size
                         val terminalFailedCount = metrics?.terminalFailedCount ?: 0
                         val pendingCount = maxOf(0, totalEligible - verifiedCount - terminalFailedCount)
                         val failedCount = metrics?.failedCount ?: 0
                         val isProviderReady = mobileCLIPProvider?.isReady() == true
 
-                        val isCompleteWithFailures = (verifiedCount + terminalFailedCount >= totalEligible) && totalEligible > 0
+                        val isCompleteWithFailures = (pendingCount == 0) && (verifiedCount + terminalFailedCount >= totalEligible) && totalEligible > 0 && verifiedCount > 0
 
                         val st = when {
                             totalEligible == 0 -> VisualIndexState.NEUTRAL_EMPTY
                             !isProviderReady -> VisualIndexState.RED_INCOMPLETE
-                            failedCount > 0 -> VisualIndexState.RED_INCOMPLETE
-                            isCompleteWithFailures || (verifiedCount >= totalEligible && totalEligible > 0) -> VisualIndexState.GREEN_READY
+                            verifiedCount == 0 && (failedCount > 0 || terminalFailedCount > 0) -> VisualIndexState.RED_INCOMPLETE
+                            isCompleteWithFailures || (verifiedCount >= totalEligible && totalEligible > 0 && pendingCount == 0) -> VisualIndexState.GREEN_READY
                             else -> VisualIndexState.YELLOW_INDEXING
                         }
 
                         val lbl = when (st) {
                             VisualIndexState.GREEN_READY -> {
-                                if (terminalFailedCount > 0) {
-                                    "Visual Index Ready — $verifiedCount indexed, $terminalFailedCount skipped"
+                                if (terminalFailedCount > 0 || verifiedCount < totalEligible) {
+                                    "Visual Index Ready — $verifiedCount / $totalEligible indexed"
                                 } else {
                                     "Visual Index Ready (100%)"
                                 }
                             }
                             VisualIndexState.YELLOW_INDEXING -> {
-                                val pct = if (totalEligible > 0) (verifiedCount * 100) / totalEligible else 0
-                                "Indexing Visuals: $verifiedCount / $totalEligible ($pct%)"
+                                val pctFloat = if (totalEligible > 0) (verifiedCount * 100.0f) / totalEligible else 0f
+                                val pctString = if (verifiedCount > 0 && pctFloat < 1.0f) {
+                                    String.format(java.util.Locale.US, "%.1f%%", pctFloat)
+                                } else {
+                                    "${pctFloat.toInt()}%"
+                                }
+                                "Preparing Visual Search: $verifiedCount / $totalEligible ($pctString)"
                             }
                             VisualIndexState.RED_INCOMPLETE -> {
                                 if (!isProviderReady) "Visual Index Engine Loading..."
@@ -2142,6 +2166,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         val db = database ?: return
         scope.launch(Dispatchers.IO) {
             try {
+                db.mediaDao().autoHealStrandedEnrichment()
                 db.mediaDao().recoverStuckEnrichment()
                 applicationContext?.let { ctx ->
                     reconcileExistingMedia(ctx)

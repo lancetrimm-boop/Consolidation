@@ -73,12 +73,16 @@ object MediaThumbnailFetcher {
      */
     suspend fun loadFullImageForEmbedding(context: Context, uriString: String): Bitmap? = withContext(Dispatchers.IO) {
         if (uriString.isBlank()) return@withContext null
+        if (!MediaCompatibility.isSupportedPhoto(context, uriString)) return@withContext null
         val uri = if (uriString.startsWith("/")) Uri.fromFile(File(uriString)) else Uri.parse(uriString)
-        val mimeType = try { context.contentResolver.getType(uri) } catch (_: Exception) { null }
-        if (!MediaCompatibility.isSupportedPhoto(mimeType, uriString)) return@withContext null
         try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            try {
+                context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            } catch (_: Exception) {}
+            if (bounds.outWidth <= 0 && uriString.startsWith("/")) {
+                BitmapFactory.decodeFile(uriString, bounds)
+            }
             val w = bounds.outWidth
             val h = bounds.outHeight
             if (w <= 0 || h <= 0) return@withContext null
@@ -89,9 +93,13 @@ object MediaThumbnailFetcher {
                 inSampleSize = sample
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            val bitmap = context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, opts)
-            }
+            val bitmap = try {
+                context.contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, opts)
+                }
+            } catch (_: Exception) { null }
+                ?: if (uriString.startsWith("/")) BitmapFactory.decodeFile(uriString, opts) else null
+
             if (isValidBitmap(bitmap)) bitmap else null
         } catch (e: Exception) {
             Log.w(TAG, "loadFullImageForEmbedding failed for $uriString: ${e.message}")
@@ -264,5 +272,30 @@ object MediaCompatibility {
         return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") ||
                 lower.endsWith(".webp") || lower.endsWith(".heic") || lower.contains("image") ||
                 lower.startsWith("content://media/external/images")
+    }
+
+    fun isSupportedPhoto(context: Context, uriString: String): Boolean {
+        if (uriString.isBlank()) return false
+        val uri = if (uriString.startsWith("/")) Uri.fromFile(File(uriString)) else Uri.parse(uriString)
+        val mimeType = try { context.contentResolver.getType(uri) } catch (_: Exception) { null }
+        if (isSupportedPhoto(mimeType, uriString)) return true
+
+        if (uriString.startsWith("content://") || uriString.startsWith("file://") || uriString.startsWith("/")) {
+            try {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use { 
+                    BitmapFactory.decodeStream(it, null, bounds) 
+                }
+                if (bounds.outWidth > 0 && bounds.outHeight > 0) return true
+            } catch (_: Exception) {}
+            if (uriString.startsWith("/")) {
+                try {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(uriString, bounds)
+                    if (bounds.outWidth > 0 && bounds.outHeight > 0) return true
+                } catch (_: Exception) {}
+            }
+        }
+        return false
     }
 }

@@ -76,6 +76,8 @@ fun LibraryScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val repo = repository
+    val libraryPrefs = remember(repo) { repo.libraryPreferences }
     val selectedFilter by repository.libraryFilterFlow.collectAsStateWithLifecycle()
     val activeCategory by repository.activeSortCategory.collectAsStateWithLifecycle()
     val standardSort by repository.selectedStandardSort.collectAsStateWithLifecycle()
@@ -89,7 +91,6 @@ fun LibraryScreen(
     val latestSortedItemsFromRepo by repository.latestAiSortRecommendation.collectAsStateWithLifecycle()
     val mediaItemsMap by repository.mediaItemsMap.collectAsStateWithLifecycle()
 
-    val libraryPrefs = remember(repository) { repository.libraryPreferences }
     val gridDensity by (libraryPrefs?.gridDensity ?: MutableStateFlow(160f)).collectAsStateWithLifecycle()
     val autoScrollSpeed by (libraryPrefs?.autoScrollSpeed ?: MutableStateFlow(AutoScrollSpeed.MEDIUM)).collectAsStateWithLifecycle()
     val visualReadiness by repository.observeVisualIndexReadiness().collectAsStateWithLifecycle(null)
@@ -411,6 +412,33 @@ fun LibraryContent(
         }
     }
 
+    var showVisualSearchWarning by remember { mutableStateOf(false) }
+
+    val launchVisualSearchOrWarn = {
+        val prefs = MediaRepository.getInstance(context).libraryPreferences
+        val isGreenReady = visualReadiness?.state == com.example.data.VisualIndexState.GREEN_READY
+        val isSuppressed = prefs?.isVisualSearchWarningSuppressed() == true
+        if (isGreenReady || isSuppressed || visualReadiness == null) {
+            visualSearchLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        } else {
+            showVisualSearchWarning = true
+        }
+    }
+
+    if (showVisualSearchWarning && visualReadiness != null) {
+        com.example.ui.components.VisualSearchWarningDialog(
+            readiness = visualReadiness!!,
+            onDismiss = { showVisualSearchWarning = false },
+            onContinue = { suppress ->
+                if (suppress) {
+                    MediaRepository.getInstance(context).libraryPreferences?.setVisualSearchWarningSuppressed(true)
+                }
+                showVisualSearchWarning = false
+                visualSearchLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+        )
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isLandscape = this.maxWidth > this.maxHeight
         
@@ -479,14 +507,6 @@ fun LibraryContent(
                             subtitle = "Your complete media collection",
                             modifier = Modifier.weight(1f)
                         )
-
-                        visualReadiness?.let { readiness ->
-                            com.example.ui.components.VisualIndexReadinessPill(
-                                readiness = readiness,
-                                onRetryClick = { onRetryFailedEnrichment() },
-                                modifier = Modifier.padding(end = AuraSpacing.S)
-                            )
-                        }
                         
                         if (state.aiState != AIState.READY && state.aiState != AIState.NOT_INITIALIZED && state.aiState != AIState.DISABLED) {
                             Row(
@@ -531,7 +551,7 @@ fun LibraryContent(
                         onClearSearch()
                     },
                     onImageSearchClick = {
-                        visualSearchLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        launchVisualSearchOrWarn()
                     }
                 )
 
@@ -1330,18 +1350,6 @@ fun LibrarySearchBar(
                         )
                     }
                 }
-
-                IconButton(
-                    onClick = onImageSearchClick,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ImageSearch,
-                        contentDescription = "Visual search",
-                        tint = DiscoveryViolet,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
             }
         }
     }
@@ -1459,14 +1467,7 @@ private fun SearchHeader(
                     cursorColor = DiscoveryViolet
                 ),
                 singleLine = true,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = AuraMidnight, fontWeight = FontWeight.Bold),
-                trailingIcon = {
-                    if (activeReferences.isEmpty()) {
-                        IconButton(onClick = onImageSearchClick, modifier = Modifier.size(40.dp)) {
-                            Icon(Icons.Default.ImageSearch, contentDescription = "Search by Image", tint = DiscoveryViolet, modifier = Modifier.size(22.dp))
-                        }
-                    }
-                }
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = AuraMidnight, fontWeight = FontWeight.Bold)
             )
         }
     }
@@ -1550,10 +1551,6 @@ private fun UtilityControlsRow(
             
             IconButton(onClick = onSearchClick, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Default.Search, contentDescription = "Search", tint = AuraMidnight)
-            }
-            
-            IconButton(onClick = onImportClick, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Import", tint = AuraMidnight)
             }
             
             IconButton(onClick = onSyncClick, modifier = Modifier.size(28.dp)) {
@@ -1676,27 +1673,17 @@ private fun EmptyLibraryView(
         )
         Spacer(modifier = Modifier.height(AuraSpacing.XS))
         Text(
-            text = "Import media from your device or scan for local content to start building your intelligence profile.",
+            text = "Scan your device for local media content to start building your intelligence profile.",
             style = MaterialTheme.typography.bodyMedium,
             color = AuraMutedSlate, // Standardized color
             textAlign = TextAlign.Center,
             lineHeight = 20.sp
         )
         Spacer(modifier = Modifier.height(AuraSpacing.XL))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(AuraSpacing.M),
+        AuraButton(
+            text = "SCAN DEVICE", 
+            onClick = onScanClick,
             modifier = Modifier.fillMaxWidth()
-        ) {
-            AuraButton(
-                text = "IMPORT", 
-                onClick = onImportClick,
-                modifier = Modifier.weight(1f)
-            )
-            AuraOutlinedButton(
-                text = "SCAN DEVICE", 
-                onClick = onScanClick,
-                modifier = Modifier.weight(1f)
-            )
-        }
+        )
     }
 }

@@ -29,10 +29,8 @@ interface MediaDao {
     suspend fun getPendingAnalysisBatch(limit: Int): List<MediaEntity>
 
     /**
-     * Progressive enrichment queue: newest and most-engaged items first so
-     * See Similar / search feel useful within minutes on a large library.
-     * Older items backfill in the background.
-     * Allows up to 5 attempts so transient decode/thumbnail errors are not terminal.
+     * Progressive enrichment queue: newest items on device first.
+     * Excludes completed items and terminal failures (failureCount >= 5).
      */
     @Query("""
         SELECT * FROM media_items
@@ -41,10 +39,8 @@ interface MediaDao {
         AND enrichmentStatus IN ('PENDING', 'FAILED_RETRYABLE', 'TEXT_ONLY', 'VISUAL_ONLY')
         AND enrichmentFailureCount < 5
         ORDER BY
-            dateAdded DESC,
-            lastViewedTimestamp DESC,
-            playCount DESC,
-            lastEnrichmentAttemptTimestamp ASC
+            CASE WHEN dateModified > 0 THEN dateModified ELSE dateAdded END DESC,
+            id ASC
         LIMIT :limit
     """)
     suspend fun getNextEnrichmentBatch(limit: Int): List<MediaEntity>
@@ -66,25 +62,40 @@ interface MediaDao {
     suspend fun recordEnrichmentFailure(id: String, status: String, timestamp: Long = System.currentTimeMillis())
 
     /**
-     * Recover stuck PROCESSING rows and automatically re-queue items that hit
-     * transient failures (failureCount < 5) so enrichment can resume without
-     * requiring the user to tap "retry".
+     * Recover rows stuck in PROCESSING status for longer than 5 minutes (default 300,000 ms).
+     * Preserves failure counts, valid embeddings, and terminal status.
+     */
+    @Query("""
+        UPDATE media_items
+        SET enrichmentStatus = 'PENDING'
+        WHERE enrichmentStatus = 'PROCESSING'
+          AND (lastEnrichmentAttemptTimestamp IS NULL OR lastEnrichmentAttemptTimestamp < :stuckTimeout)
+    """)
+    suspend fun recoverStuckEnrichment(stuckTimeout: Long = System.currentTimeMillis() - 300_000L)
+
+    /**
+     * One-time automated pipeline recovery for records stranded by older fixed defects.
+     * Resets failure count and status to PENDING only for eligible unindexed items
+     * whose retry count reached 5, preserving valid embeddings and FAILED_PERMANENT items.
      */
     @Query("""
         UPDATE media_items
         SET enrichmentStatus = 'PENDING',
-            enrichmentFailureCount = CASE
-                WHEN enrichmentFailureCount >= 5 THEN enrichmentFailureCount
-                ELSE 0
-            END
-        WHERE enrichmentStatus = 'PROCESSING'
-           OR (
-                enrichmentStatus IN ('FAILED_RETRYABLE', 'PENDING', 'TEXT_ONLY', 'VISUAL_ONLY')
-                AND enrichmentFailureCount > 0
-                AND enrichmentFailureCount < 5
-           )
+            enrichmentFailureCount = 0
+        WHERE isDeleted = 0
+          AND compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
+          AND enrichmentStatus != 'FAILED_PERMANENT'
+          AND enrichmentFailureCount >= 5
+          AND NOT EXISTS (
+              SELECT 1 FROM semantic_representations s
+              WHERE s.mediaId = media_items.id
+                AND s.representationType = 'VISUAL'
+                AND s.modelId = 'mobileclip-s0'
+                AND s.dimensionality = 512
+                AND length(s.vectorData) >= 512
+          )
     """)
-    suspend fun recoverStuckEnrichment()
+    suspend fun autoHealStrandedEnrichment()
 
     @Query("""
         UPDATE media_items

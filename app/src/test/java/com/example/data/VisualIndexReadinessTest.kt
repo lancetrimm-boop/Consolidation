@@ -54,7 +54,7 @@ class VisualIndexReadinessTest {
         val verified = 50
         val total = 100
         val pct = (verified * 100) / total
-        val label = "Indexing Visuals: $verified / $total ($pct%)"
+        val label = "Preparing Visual Search: $verified / $total ($pct%)"
 
         val readiness = VisualIndexReadiness(
             state = VisualIndexState.YELLOW_INDEXING,
@@ -67,7 +67,7 @@ class VisualIndexReadinessTest {
             isModelReady = true
         )
         assertEquals(VisualIndexState.YELLOW_INDEXING, readiness.state)
-        assertEquals("Indexing Visuals: 50 / 100 (50%)", readiness.label)
+        assertEquals("Preparing Visual Search: 50 / 100 (50%)", readiness.label)
     }
 
     @Test

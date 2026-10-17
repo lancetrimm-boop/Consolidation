@@ -246,7 +246,16 @@ class VisualContextEngine(
         val hash = mediaItem?.contentHash ?: "v1_enrich_$id"
         if (repo.getSpecificRepresentation(id, descriptor.primaryType, descriptor)?.sourceDataHash == hash) return@withContext true
         try {
-            val bitmaps = extractSampledFrames(id, uri, dur / 10, dur, ctx)
+            val isVideo = mediaItem?.mediaType?.startsWith("VIDEO", ignoreCase = true) == true ||
+                mediaItem?.mediaType?.equals("MOVIE", ignoreCase = true) == true ||
+                dur > 0
+            val bitmaps = if (isVideo) {
+                extractSampledFrames(id, uri, dur / 10, dur, ctx)
+            } else {
+                val fullImg = com.example.util.MediaThumbnailFetcher.loadFullImageForEmbedding(ctx, uri)
+                    ?: com.example.util.MediaThumbnailFetcher.getThumbnail(ctx, uri)
+                if (fullImg != null) listOf(fullImg) else emptyList()
+            }
             if (bitmaps.isEmpty()) return@withContext false
             val result = prov.generateEmbedding(id, SemanticInput.ExplicitBitmap(bitmaps[0]), hash)
             bitmaps.forEach { if (!it.isRecycled) it.recycle() }

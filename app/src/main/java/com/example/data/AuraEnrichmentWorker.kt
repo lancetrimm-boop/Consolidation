@@ -118,9 +118,10 @@ class AuraEnrichmentWorker(
         logStats(repository)
 
         val metrics = try { mediaDao.getEnrichmentMetrics() } catch (_: Exception) { null }
-        val hasPendingItems = metrics != null && (metrics.totalEligible > metrics.completeCount)
+        val remainingBatch = mediaDao.getNextEnrichmentBatch(1)
+        val hasPendingItems = remainingBatch.isNotEmpty() || (metrics != null && (metrics.totalEligible > metrics.completeCount))
 
-        if (!isStopped && totalProgressMade > 0) {
+        if (!isStopped && (totalProgressMade > 0 || remainingBatch.isNotEmpty())) {
             schedule(applicationContext)
             return@withContext Result.success()
         } else if (!isStopped && hasPendingItems && !hasVisualReady) {
@@ -191,16 +192,34 @@ class AuraEnrichmentWorker(
     }
 
     private suspend fun processVisualEnrichment(repository: MediaRepository, entity: MediaEntity): ModalityResult {
-        val visualEngine = repository.visualContextEngine
-        val repo = repository.semanticRepresentationRepository ?: return ModalityResult.FAILURE
         val provider = repository.mobileCLIPProvider 
-        
         if (provider == null || !provider.isReady()) return ModalityResult.ENGINE_MISSING
-        
+
+        val repo = repository.semanticRepresentationRepository ?: return ModalityResult.FAILURE
         val descriptor = provider.descriptor
         val existing = repo.getSpecificRepresentation(entity.id, descriptor.primaryType, descriptor)
         if (existing != null) return ModalityResult.ALREADY_PRESENT
 
+        val indexingService = repository.visualIndexingService
+        if (indexingService != null) {
+            val mediaItem = repository.mediaItemsMap.value[entity.id] ?: MediaItem(
+                id = entity.id,
+                title = entity.title,
+                mediaType = entity.mediaType ?: "PHOTO",
+                duration = "00:00",
+                durationMs = entity.durationMs,
+                genre = entity.genre ?: "",
+                uriPath = entity.uriPath,
+                sizeBytes = entity.sizeBytes
+            )
+            val result = indexingService.indexVisual(applicationContext, mediaItem)
+            return when (result) {
+                is EmbeddingResult.Success -> ModalityResult.SUCCESS
+                is EmbeddingResult.Failure -> ModalityResult.FAILURE
+            }
+        }
+
+        val visualEngine = repository.visualContextEngine
         val success = visualEngine.enrichMedia(entity.id, entity.uriPath, entity.durationMs, applicationContext)
         return if (success) ModalityResult.SUCCESS else ModalityResult.FAILURE
     }

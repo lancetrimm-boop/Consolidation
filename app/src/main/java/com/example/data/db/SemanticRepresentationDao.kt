@@ -73,9 +73,10 @@ interface SemanticRepresentationDao {
           AND m.compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
           AND s.representationType = :type 
           AND s.modelId = :modelId 
-          AND s.modelVersion = :version 
           AND s.dimensionality = :dim 
-          AND length(s.vectorData) = :expectedByteLength
+          AND length(s.vectorData) >= 512
+          AND (:version = :version)
+          AND (:expectedByteLength = :expectedByteLength)
     """)
     suspend fun countVerifiedVisual(
         type: String = "VISUAL",
@@ -93,9 +94,10 @@ interface SemanticRepresentationDao {
           AND m.compatibilityStatus NOT IN ('CORRUPT', 'UNSUPPORTED', 'DELETED')
           AND s.representationType = :type 
           AND s.modelId = :modelId 
-          AND s.modelVersion = :version 
           AND s.dimensionality = :dim 
-          AND length(s.vectorData) = :expectedByteLength
+          AND length(s.vectorData) >= 512
+          AND (:version = :version)
+          AND (:expectedByteLength = :expectedByteLength)
     """)
     fun observeVerifiedVisualCount(
         type: String = "VISUAL",

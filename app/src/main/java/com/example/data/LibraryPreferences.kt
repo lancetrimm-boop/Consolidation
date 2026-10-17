@@ -64,9 +64,23 @@ class LibraryPreferences(context: Context) {
         }
     }
 
+    fun getVisualIndexPipelineVersion(): Int = prefs.getInt(KEY_VISUAL_INDEX_PIPELINE_VERSION, 0)
+
+    fun setVisualIndexPipelineVersion(version: Int) {
+        prefs.edit().putInt(KEY_VISUAL_INDEX_PIPELINE_VERSION, version).apply()
+    }
+
+    fun isVisualSearchWarningSuppressed(): Boolean = prefs.getBoolean(KEY_VISUAL_SEARCH_WARNING_SUPPRESSED, false)
+
+    fun setVisualSearchWarningSuppressed(suppressed: Boolean) {
+        prefs.edit().putBoolean(KEY_VISUAL_SEARCH_WARNING_SUPPRESSED, suppressed).apply()
+    }
+
     companion object {
         private const val KEY_GRID_DENSITY = "library_grid_density"
         private const val KEY_AUTOSCROLL_SPEED = "library_autoscroll_speed"
         private const val KEY_FIRST_RUN_SCAN_STATE = "first_run_scan_state"
+        private const val KEY_VISUAL_INDEX_PIPELINE_VERSION = "visual_index_pipeline_version"
+        private const val KEY_VISUAL_SEARCH_WARNING_SUPPRESSED = "visual_search_warning_suppressed"
     }
 }

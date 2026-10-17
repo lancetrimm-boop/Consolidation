@@ -388,6 +388,33 @@ fun AuraMainContent(
     }
 
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
+    var pendingSearchAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val visualReadiness by repository.observeVisualIndexReadiness().collectAsStateWithLifecycle(null)
+
+    val executeSearchOrWarn: (() -> Unit) -> Unit = { action ->
+        val isGreenReady = visualReadiness?.state == com.example.data.VisualIndexState.GREEN_READY
+        val isSuppressed = repository.libraryPreferences?.isVisualSearchWarningSuppressed() == true
+        if (isGreenReady || isSuppressed || visualReadiness == null) {
+            action()
+        } else {
+            pendingSearchAction = action
+        }
+    }
+
+    if (pendingSearchAction != null && visualReadiness != null) {
+        com.example.ui.components.VisualSearchWarningDialog(
+            readiness = visualReadiness!!,
+            onDismiss = { pendingSearchAction = null },
+            onContinue = { suppress ->
+                if (suppress) {
+                    repository.libraryPreferences?.setVisualSearchWarningSuppressed(true)
+                }
+                val act = pendingSearchAction
+                pendingSearchAction = null
+                act?.invoke()
+            }
+        )
+    }
     var isPendingComparisonDelete by remember { mutableStateOf(false) }
 
     val deleteRequestLauncher = rememberLauncherForActivityResult(
@@ -537,18 +564,20 @@ fun AuraMainContent(
                     repository = repository,
                     onClose = { activeMomentsMode = null },
                     onSeeSimilar = { targetItem ->
-                        val requestId = java.util.UUID.randomUUID().toString().take(6)
-                        coroutineScope.launch {
-                            val response = repository.getSimilarMedia(targetItem, requestId)
-                            if (response.isSuccess && response.candidates.isNotEmpty()) {
-                                val targetType = targetItem.mediaType
-                                val similarCandidates = response.candidates
-                                    .map { it.item }
-                                    .filter { it.mediaType.equals(targetType, ignoreCase = true) }
-                                    .filter { it.id != targetItem.id }
-                                val queue = listOf(targetItem) + similarCandidates
-                                repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "Similar — ${targetItem.title}", isFinite = true)
-                                activeMomentsMode = null // Exit slideshow to play similar items
+                        executeSearchOrWarn {
+                            val requestId = java.util.UUID.randomUUID().toString().take(6)
+                            coroutineScope.launch {
+                                val response = repository.getSimilarMedia(targetItem, requestId)
+                                if (response.isSuccess && response.candidates.isNotEmpty()) {
+                                    val targetType = targetItem.mediaType
+                                    val similarCandidates = response.candidates
+                                        .map { it.item }
+                                        .filter { it.mediaType.equals(targetType, ignoreCase = true) }
+                                        .filter { it.id != targetItem.id }
+                                    val queue = listOf(targetItem) + similarCandidates
+                                    repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "Similar — ${targetItem.title}", isFinite = true)
+                                    activeMomentsMode = null // Exit slideshow to play similar items
+                                }
                             }
                         }
                     }
@@ -654,37 +683,39 @@ fun AuraMainContent(
                     },
                     onMicroMoment = { id, taps -> repository.recordMicroMoment(id, taps) },
                     onSeeSimilar = { targetItem ->
-                        val requestId = java.util.UUID.randomUUID().toString().take(6)
-                        Log.d("SEE_SIMILAR_TRACE", "STAGE=ORCHESTRATOR requestId=$requestId sourceId=${targetItem.id} title=\"${targetItem.title}\"")
-                        coroutineScope.launch {
-                            val response = repository.getSimilarMedia(targetItem, requestId)
-                            Log.d("SEE_SIMILAR_TRACE", "STAGE=RESULT requestId=$requestId isSuccess=${response.isSuccess} resultCount=${response.candidates.size}")
-                            
-                            if (response.isSuccess && response.candidates.isNotEmpty()) {
-                                val targetType = targetItem.mediaType
-                                val similarCandidates = response.candidates
-                                    .map { it.item }
-                                    .filter { it.mediaType == targetType }
-                                    .filter { it.id != targetItem.id }
-                                val queue = listOf(targetItem) + similarCandidates
-                                repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "See Similar — ${targetItem.title}", isFinite = true)
+                        executeSearchOrWarn {
+                            val requestId = java.util.UUID.randomUUID().toString().take(6)
+                            Log.d("SEE_SIMILAR_TRACE", "STAGE=ORCHESTRATOR requestId=$requestId sourceId=${targetItem.id} title=\"${targetItem.title}\"")
+                            coroutineScope.launch {
+                                val response = repository.getSimilarMedia(targetItem, requestId)
+                                Log.d("SEE_SIMILAR_TRACE", "STAGE=RESULT requestId=$requestId isSuccess=${response.isSuccess} resultCount=${response.candidates.size}")
                                 
-                                val active = repository.activePlaylist.value
-                                if (active != null && active.items.isNotEmpty()) {
-                                    val count = active.items.size
-                                    val countMsg = if (count == 1) "Found 1 similar item" else "Found $count similar items"
-                                    Log.d("SEE_SIMILAR_TRACE", "STAGE=SUCCESS requestId=$requestId playlistSize=$count")
-                                    android.widget.Toast.makeText(context, countMsg, android.widget.Toast.LENGTH_SHORT).show()
+                                if (response.isSuccess && response.candidates.isNotEmpty()) {
+                                    val targetType = targetItem.mediaType
+                                    val similarCandidates = response.candidates
+                                        .map { it.item }
+                                        .filter { it.mediaType == targetType }
+                                        .filter { it.id != targetItem.id }
+                                    val queue = listOf(targetItem) + similarCandidates
+                                    repository.setPlaylist(items = queue, initialIndex = 0, sourceTitle = "See Similar — ${targetItem.title}", isFinite = true)
+                                    
+                                    val active = repository.activePlaylist.value
+                                    if (active != null && active.items.isNotEmpty()) {
+                                        val count = active.items.size
+                                        val countMsg = if (count == 1) "Found 1 similar item" else "Found $count similar items"
+                                        Log.d("SEE_SIMILAR_TRACE", "STAGE=SUCCESS requestId=$requestId playlistSize=$count")
+                                        android.widget.Toast.makeText(context, countMsg, android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Log.e("SEE_SIMILAR_TRACE", "STAGE=PLAYLIST_FAILURE requestId=$requestId - Playlist became empty after sanitization.")
+                                        android.widget.Toast.makeText(context, "No playable similar items found", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                } else if (!response.isSuccess) {
+                                    Log.e("SEE_SIMILAR_TRACE", "STAGE=FAILURE requestId=$requestId error=${response.errorMessage}")
+                                    android.widget.Toast.makeText(context, "Couldn't find similar items", android.widget.Toast.LENGTH_LONG).show()
                                 } else {
-                                    Log.e("SEE_SIMILAR_TRACE", "STAGE=PLAYLIST_FAILURE requestId=$requestId - Playlist became empty after sanitization.")
-                                    android.widget.Toast.makeText(context, "No playable similar items found", android.widget.Toast.LENGTH_LONG).show()
+                                    Log.d("SEE_SIMILAR_TRACE", "STAGE=NO_RESULTS requestId=$requestId")
+                                    android.widget.Toast.makeText(context, "Found 0 similar items", android.widget.Toast.LENGTH_SHORT).show()
                                 }
-                            } else if (!response.isSuccess) {
-                                Log.e("SEE_SIMILAR_TRACE", "STAGE=FAILURE requestId=$requestId error=${response.errorMessage}")
-                                android.widget.Toast.makeText(context, "Couldn't find similar items", android.widget.Toast.LENGTH_LONG).show()
-                            } else {
-                                Log.d("SEE_SIMILAR_TRACE", "STAGE=NO_RESULTS requestId=$requestId")
-                                android.widget.Toast.makeText(context, "Found 0 similar items", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         }
                     },
