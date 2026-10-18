@@ -1098,34 +1098,61 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
     // --- Saved Media (Bookmarking) API ---
 
+    private val savedToggleMutex = kotlinx.coroutines.sync.Mutex()
+
     fun saveMedia(mediaId: String) {
         if (mediaId.isBlank()) return
         scope.launch {
-            val savedDao = database?.savedMediaDao() ?: return@launch
-            savedDao.saveMedia(SavedMediaEntity(mediaId = mediaId, savedAt = System.currentTimeMillis()))
+            savedToggleMutex.withLock {
+                saveMediaLocked(mediaId)
+            }
         }
     }
 
     fun removeMedia(mediaId: String) {
         if (mediaId.isBlank()) return
         scope.launch {
-            val savedDao = database?.savedMediaDao() ?: return@launch
-            savedDao.deleteMedia(mediaId)
+            savedToggleMutex.withLock {
+                val savedDao = database?.savedMediaDao() ?: return@withLock
+                savedDao.deleteMedia(mediaId)
+                // Note: TasteDNA preference adjustments are preserved intentionally to avoid non-linear clamping drift.
+            }
         }
     }
-
-    private val savedToggleMutex = kotlinx.coroutines.sync.Mutex()
 
     fun toggleSaved(mediaId: String) {
         if (mediaId.isBlank()) return
         scope.launch {
             savedToggleMutex.withLock {
                 val savedDao = database?.savedMediaDao() ?: return@withLock
-                val isCurrentlySaved = savedDao.isSaved(mediaId)
-                if (isCurrentlySaved) {
+                if (savedDao.isSaved(mediaId)) {
                     savedDao.deleteMedia(mediaId)
                 } else {
-                    savedDao.saveMedia(SavedMediaEntity(mediaId = mediaId, savedAt = System.currentTimeMillis()))
+                    saveMediaLocked(mediaId)
+                }
+            }
+        }
+    }
+
+    /** Assumes caller already holds savedToggleMutex */
+    private suspend fun saveMediaLocked(mediaId: String) {
+        val savedDao = database?.savedMediaDao() ?: return
+        val isAlreadySaved = savedDao.isSaved(mediaId)
+
+        savedDao.saveMedia(SavedMediaEntity(mediaId = mediaId, savedAt = System.currentTimeMillis()))
+
+        if (!isAlreadySaved) {
+            database?.microMomentDao()?.insertMoment(
+                MicroMomentEntity(mediaId = mediaId, tapCount = 1, timestamp = System.currentTimeMillis())
+            )
+            val item = getMediaItemById(mediaId)
+            if (item != null && _tasteDNA.value.isFineTuningEnabled) {
+                var dna = _tasteDNA.value
+                PersonalizationTraitMapper.getEffectiveTraitAdjustments(item).forEach { (dim, mult) ->
+                    dna = dna.updateLearnedDimension(dim, mult * 0.04, 0.20)
+                }
+                if (dna != _tasteDNA.value) {
+                    updateTasteDNA(dna, false, "Save")
                 }
             }
         }
