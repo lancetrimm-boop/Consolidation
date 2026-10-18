@@ -7,6 +7,7 @@ import com.example.data.contribution.ConsentState
 import com.example.data.intelligence.SignatureStyleProfile
 import com.example.ui.components.SwipeMenuSheet
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -75,6 +76,8 @@ class SavedScreenTest {
     fun testMyStuffNavigation_ExposesSavedTab() {
         val repository = mock<MediaRepository>()
         whenever(repository.observeSavedMedia()).thenReturn(MutableStateFlow(emptyList()))
+        whenever(repository.watchHistory).thenReturn(MutableStateFlow(emptyList()))
+        whenever(repository.observeVisualIndexReadiness()).thenReturn(flowOf())
         whenever(repository.tasteDNA).thenReturn(MutableStateFlow(TasteDNA()))
         whenever(repository.preferenceProfile).thenReturn(MutableStateFlow(TasteDNA.PreferenceProfile()))
         whenever(repository.discoveryPolicy).thenReturn(MutableStateFlow(DiscoveryPolicy()))
