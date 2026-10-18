@@ -332,20 +332,25 @@ fun LibraryContent(
     }
 
     // AURA STABILITY FIX: UI-side list stability to prevent items from jumping while viewing.
-    // In unstable modes (Discover), we lock the list and only update it on manual refresh or sort change.
+    // Preserves visible item sequence during in-place state changes (e.g. favoriting/liking).
+    // Thaws and updates order when the item set changes (import, delete, paging) or on explicit sort/filter changes.
     var stableItems by remember { mutableStateOf<List<LibraryItemUi>>(emptyList()) }
-    val isUnstableMode = state.activeCategory == SortCategory.INTELLIGENT && state.intelligentSort == IntelligentSortOption.DISCOVER
 
     LaunchedEffect(latestSortedItems) {
         val currentIds = latestSortedItems.map { it.id }
         val stableIds = stableItems.map { it.id }
-        if (!isUnstableMode || stableItems.isEmpty() || currentIds != stableIds) {
+
+        val isSameSetOfItems = stableItems.isNotEmpty() &&
+            currentIds.size == stableIds.size &&
+            currentIds.toSet() == stableIds.toSet()
+
+        if (!isSameSetOfItems) {
             stableItems = latestSortedItems
         }
     }
 
     LaunchedEffect(state.activeCategory, state.intelligentSort, state.selectedFilter, state.searchRequest) {
-        // Sort/Filter change acts as a "thaw" signal
+        // Sort/Filter/Search change acts as an explicit "thaw" signal
         stableItems = latestSortedItems
     }
 
