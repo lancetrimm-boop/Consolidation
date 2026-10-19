@@ -4,6 +4,14 @@ enum class CompareMediaTypeFilter {
     PHOTOS, VIDEOS
 }
 
+enum class CompareSimilarityFilter {
+    SIMILAR, BROAD
+}
+
+enum class CompareLearningMode {
+    LEARN, EXPLORE, REFINE, REVIEW
+}
+
 enum class CompareStrategy {
     PERSONALIZED, REDISCOVER, LEAST_INTERACTED, EXPLORE
 }

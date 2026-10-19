@@ -242,6 +242,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     private val _compareMediaType = MutableStateFlow(CompareMediaTypeFilter.PHOTOS); val compareMediaType = _compareMediaType.asStateFlow()
     private val _compareStrategy = MutableStateFlow(CompareStrategy.PERSONALIZED); val compareStrategy = _compareStrategy.asStateFlow()
     private val _compareSort = MutableStateFlow(CompareSortOption.RECOMMENDED); val compareSort = _compareSort.asStateFlow()
+    private val _compareSimilarity = MutableStateFlow(CompareSimilarityFilter.BROAD); val compareSimilarity = _compareSimilarity.asStateFlow()
+    private val _compareLearningMode = MutableStateFlow(CompareLearningMode.LEARN); val compareLearningMode = _compareLearningMode.asStateFlow()
     
     private val _consentState = MutableStateFlow(ConsentState.NOT_DECIDED); val consentState = _consentState.asStateFlow()
     private val emptyMediaItem = MediaItem(id = "", title = "", mediaType = "PHOTO", year = 2024, duration = "", genre = "Media")
@@ -1843,6 +1845,22 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     fun setCompareMediaType(filter: CompareMediaTypeFilter) { _compareMediaType.value = filter; refreshPairwiseCandidatePoolAndSelectNext(true) }
     fun setCompareStrategy(strategy: CompareStrategy) { _compareStrategy.value = strategy; refreshPairwiseCandidatePoolAndSelectNext(true) }
     fun setCompareSort(sort: CompareSortOption) { _compareSort.value = sort; refreshPairwiseCandidatePoolAndSelectNext(true) }
+    fun setCompareSimilarity(filter: CompareSimilarityFilter) { _compareSimilarity.value = filter; refreshPairwiseCandidatePoolAndSelectNext(true) }
+    fun setCompareLearningMode(mode: CompareLearningMode) { _compareLearningMode.value = mode; refreshPairwiseCandidatePoolAndSelectNext(true) }
+    fun resetPairwiseFilters() {
+        _compareSimilarity.value = CompareSimilarityFilter.BROAD
+        _compareLearningMode.value = CompareLearningMode.LEARN
+        _compareSort.value = CompareSortOption.RECOMMENDED
+        preFetchedPair = null
+        synchronized(pairwiseLock) {
+            recentPairs.clear()
+            recentItemIds.clear()
+        }
+        if (_compareSelectionSession.value.isActive) {
+            _compareSelectionSession.update { it.copy(comparedPairIds = emptyList()) }
+        }
+        refreshPairwiseCandidatePoolAndSelectNext(true)
+    }
     fun recordComparisonVote(chosenId: String) {
         val currentPair = _pairwiseState.value
         Log.i("PAIRWISE_TRACE", "RECORD_COMPARISON_VOTE_START: chosenId=$chosenId optionA=${currentPair.optionA.id} optionB=${currentPair.optionB.id}")

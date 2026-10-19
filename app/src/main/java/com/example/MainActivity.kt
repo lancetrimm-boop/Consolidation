@@ -334,6 +334,8 @@ fun AuraMainContent(
     val compareMediaType by repository.compareMediaType.collectAsStateWithLifecycle()
     val compareStrategy by repository.compareStrategy.collectAsStateWithLifecycle()
     val compareSort by repository.compareSort.collectAsStateWithLifecycle()
+    val compareSimilarity by repository.compareSimilarity.collectAsStateWithLifecycle()
+    val compareLearningMode by repository.compareLearningMode.collectAsStateWithLifecycle()
     val consentState by repository.consentState.collectAsStateWithLifecycle()
     val importProgress by repository.importProgress.collectAsStateWithLifecycle()
     val scanProgress by repository.scanProgress.collectAsStateWithLifecycle()
@@ -940,10 +942,15 @@ fun AuraMainContent(
                                 compareMediaType = compareMediaType,
                                 compareStrategy = compareStrategy,
                                 compareSort = compareSort,
+                                compareSimilarity = compareSimilarity,
+                                compareLearningMode = compareLearningMode,
                                 isRepositoryReady = (databaseState == com.example.data.DatabaseState.READY),
                                 onMediaTypeSelect = { filter -> repository.setCompareMediaType(filter) },
                                 onStrategySelect = { strategy -> repository.setCompareStrategy(strategy) },
                                 onSortSelect = { sort -> repository.setCompareSort(sort) },
+                                onSimilaritySelect = { similarity -> repository.setCompareSimilarity(similarity) },
+                                onLearningModeSelect = { mode -> repository.setCompareLearningMode(mode) },
+                                onResetFilters = { repository.resetPairwiseFilters() },
                                 onVote = { chosenId -> coroutineScope.launch { repository.recordComparisonVote(chosenId) } },
                                 onSkip = { coroutineScope.launch { repository.skipComparison() } },
                                 onDeleteMedia = { id -> requestDeletion(id, true) },

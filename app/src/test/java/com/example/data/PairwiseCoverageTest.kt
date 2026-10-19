@@ -90,4 +90,18 @@ class PairwiseCoverageTest {
         val pool3 = RecommendationEngine.getTop100PairwiseCandidates(repository, seed = 456L)
         assertNotEquals(pool1.map { it.first.id }, pool3.map { it.first.id })
     }
+
+    @Test
+    fun testPoolRotationExceeds100Items() = runTest {
+        val allItems = (1..150).map { createMediaItem(it.toString()) }
+        repository.setMediaItemsForTesting(allItems)
+
+        val pool1 = RecommendationEngine.getTop100PairwiseCandidates(repository, seed = 111L, compareStrategy = CompareStrategy.EXPLORE)
+        val pool2 = RecommendationEngine.getTop100PairwiseCandidates(repository, seed = 222L, compareStrategy = CompareStrategy.EXPLORE)
+
+        val ids1 = pool1.map { it.first.id }.toSet()
+        val ids2 = pool2.map { it.first.id }.toSet()
+
+        assertNotEquals(ids1, ids2)
+    }
 }

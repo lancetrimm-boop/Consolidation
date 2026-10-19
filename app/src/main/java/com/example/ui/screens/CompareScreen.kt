@@ -117,6 +117,8 @@ import com.example.data.CompareMediaTypeFilter
 import com.example.data.CompareSelectionSession
 import com.example.data.CompareSortOption
 import com.example.data.CompareStrategy
+import com.example.data.CompareSimilarityFilter
+import com.example.data.CompareLearningMode
 
 private enum class CompareFilterGroup {
     MEDIA_TYPE, LEARNING, STANDARD
@@ -130,10 +132,15 @@ fun CompareScreen(
     compareMediaType: CompareMediaTypeFilter = CompareMediaTypeFilter.PHOTOS,
     compareStrategy: CompareStrategy = CompareStrategy.PERSONALIZED,
     compareSort: CompareSortOption = CompareSortOption.NEWEST,
+    compareSimilarity: CompareSimilarityFilter = CompareSimilarityFilter.BROAD,
+    compareLearningMode: CompareLearningMode = CompareLearningMode.LEARN,
     isRepositoryReady: Boolean = true,
     onMediaTypeSelect: (CompareMediaTypeFilter) -> Unit = {},
     onStrategySelect: (CompareStrategy) -> Unit = {},
     onSortSelect: (CompareSortOption) -> Unit = {},
+    onSimilaritySelect: (CompareSimilarityFilter) -> Unit = {},
+    onLearningModeSelect: (CompareLearningMode) -> Unit = {},
+    onResetFilters: () -> Unit = {},
     onVote: (String) -> Unit,
     onSkip: () -> Unit,
     onDeleteMedia: (String) -> Unit,
@@ -283,13 +290,16 @@ fun CompareScreen(
             // UNIFIED COMPARE CONTROLS (Standard/Global)
             CompareControlRow(
                 mediaType = compareMediaType,
-                strategy = compareStrategy,
+                similarity = compareSimilarity,
+                learningMode = compareLearningMode,
                 sort = compareSort,
                 activeGroup = activeFilterGroup,
                 onGroupClick = { activeFilterGroup = it },
                 onMediaTypeSelect = onMediaTypeSelect,
-                onStrategySelect = onStrategySelect,
-                onSortSelect = onSortSelect
+                onSimilaritySelect = onSimilaritySelect,
+                onLearningModeSelect = onLearningModeSelect,
+                onSortSelect = onSortSelect,
+                onResetFilters = onResetFilters
             )
 
             if (!isRepositoryReady) {
@@ -726,13 +736,16 @@ private fun CompareSessionBanner(
 @Composable
 private fun CompareControlRow(
     mediaType: CompareMediaTypeFilter,
-    strategy: CompareStrategy,
+    similarity: CompareSimilarityFilter,
+    learningMode: CompareLearningMode,
     sort: CompareSortOption,
     activeGroup: CompareFilterGroup,
     onGroupClick: (CompareFilterGroup) -> Unit,
     onMediaTypeSelect: (CompareMediaTypeFilter) -> Unit,
-    onStrategySelect: (CompareStrategy) -> Unit,
-    onSortSelect: (CompareSortOption) -> Unit
+    onSimilaritySelect: (CompareSimilarityFilter) -> Unit,
+    onLearningModeSelect: (CompareLearningMode) -> Unit,
+    onSortSelect: (CompareSortOption) -> Unit,
+    onResetFilters: () -> Unit
 ) {
     androidx.compose.foundation.lazy.LazyRow(
         modifier = Modifier.fillMaxWidth(),
@@ -761,29 +774,53 @@ private fun CompareControlRow(
 
         item {
             AuraSortSelector(
-                label = "Vibe",
-                currentOption = when (strategy) {
-                    CompareStrategy.PERSONALIZED -> "Personalized"
-                    CompareStrategy.REDISCOVER -> "Rediscover"
-                    CompareStrategy.LEAST_INTERACTED -> "Review"
-                    CompareStrategy.EXPLORE -> "Experimental"
+                label = "Similarity",
+                currentOption = when (similarity) {
+                    CompareSimilarityFilter.SIMILAR -> "Similar"
+                    CompareSimilarityFilter.BROAD -> "Broad"
                 },
                 isSelected = activeGroup == CompareFilterGroup.LEARNING,
-                options = CompareStrategy.entries,
+                options = CompareSimilarityFilter.entries,
                 onOptionSelected = {
-                    onStrategySelect(it)
+                    onSimilaritySelect(it)
                     onGroupClick(CompareFilterGroup.LEARNING)
                 },
                 onPillClick = { onGroupClick(CompareFilterGroup.LEARNING) },
                 getDisplayName = { 
                     when (it) {
-                        CompareStrategy.PERSONALIZED -> "Personalized"
-                        CompareStrategy.REDISCOVER -> "Rediscover"
-                        CompareStrategy.LEAST_INTERACTED -> "Review"
-                        CompareStrategy.EXPLORE -> "Experimental"
+                        CompareSimilarityFilter.SIMILAR -> "Similar"
+                        CompareSimilarityFilter.BROAD -> "Broad"
                     }
                 },
                 selectedColor = DiscoveryMagenta
+            )
+        }
+
+        item {
+            AuraSortSelector(
+                label = "Mode",
+                currentOption = when (learningMode) {
+                    CompareLearningMode.LEARN -> "Learn"
+                    CompareLearningMode.EXPLORE -> "Explore"
+                    CompareLearningMode.REFINE -> "Refine"
+                    CompareLearningMode.REVIEW -> "Review"
+                },
+                isSelected = activeGroup == CompareFilterGroup.LEARNING,
+                options = CompareLearningMode.entries,
+                onOptionSelected = {
+                    onLearningModeSelect(it)
+                    onGroupClick(CompareFilterGroup.LEARNING)
+                },
+                onPillClick = { onGroupClick(CompareFilterGroup.LEARNING) },
+                getDisplayName = { 
+                    when (it) {
+                        CompareLearningMode.LEARN -> "Learn"
+                        CompareLearningMode.EXPLORE -> "Explore"
+                        CompareLearningMode.REFINE -> "Refine"
+                        CompareLearningMode.REVIEW -> "Review"
+                    }
+                },
+                selectedColor = AuraPurple
             )
         }
 
@@ -815,6 +852,20 @@ private fun CompareControlRow(
                 },
                 selectedColor = AuraPurple
             )
+        }
+
+        item {
+            Surface(
+                onClick = onResetFilters,
+                shape = RoundedCornerShape(16.dp),
+                color = AuraSubtleSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, AuraSubtleBorder),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Box(modifier = Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                    Text("Reset", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AuraOnSurface)
+                }
+            }
         }
     }
 }
