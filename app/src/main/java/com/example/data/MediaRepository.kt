@@ -244,6 +244,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     private val _compareSort = MutableStateFlow(CompareSortOption.RECOMMENDED); val compareSort = _compareSort.asStateFlow()
     private val _compareSimilarity = MutableStateFlow(CompareSimilarityFilter.BROAD); val compareSimilarity = _compareSimilarity.asStateFlow()
     private val _compareLearningMode = MutableStateFlow(CompareLearningMode.LEARN); val compareLearningMode = _compareLearningMode.asStateFlow()
+    private val _pairwiseBatchRatedCount = MutableStateFlow(0); val pairwiseBatchRatedCount = _pairwiseBatchRatedCount.asStateFlow()
+    private val _pairwiseBatchNumber = MutableStateFlow(1); val pairwiseBatchNumber = _pairwiseBatchNumber.asStateFlow()
     
     private val _consentState = MutableStateFlow(ConsentState.NOT_DECIDED); val consentState = _consentState.asStateFlow()
     private val emptyMediaItem = MediaItem(id = "", title = "", mediaType = "PHOTO", year = 2024, duration = "", genre = "Media")
@@ -1879,6 +1881,20 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 Log.e("MediaRepository", "Failed to persist pairwise comparison vote", e)
                 return
             }
+        }
+
+        val newRatedCount = _pairwiseBatchRatedCount.value + 1
+        if (newRatedCount >= 100) {
+            _pairwiseBatchRatedCount.value = 1
+            _pairwiseBatchNumber.update { it + 1 }
+            preFetchedPair = null
+            synchronized(pairwiseLock) {
+                recentPairs.clear()
+                recentItemIds.clear()
+            }
+            refreshPairwiseCandidatePoolAndSelectNext(true)
+        } else {
+            _pairwiseBatchRatedCount.value = newRatedCount
         }
 
         if (_compareSelectionSession.value.isActive) {

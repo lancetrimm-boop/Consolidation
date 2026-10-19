@@ -336,6 +336,7 @@ fun AuraMainContent(
     val compareSort by repository.compareSort.collectAsStateWithLifecycle()
     val compareSimilarity by repository.compareSimilarity.collectAsStateWithLifecycle()
     val compareLearningMode by repository.compareLearningMode.collectAsStateWithLifecycle()
+    val pairwiseBatchRatedCount by repository.pairwiseBatchRatedCount.collectAsStateWithLifecycle()
     val consentState by repository.consentState.collectAsStateWithLifecycle()
     val importProgress by repository.importProgress.collectAsStateWithLifecycle()
     val scanProgress by repository.scanProgress.collectAsStateWithLifecycle()
@@ -938,6 +939,7 @@ fun AuraMainContent(
                             CompareScreen(
                                 pairwiseState = pairwiseState,
                                 session = compareSession,
+                                batchRatedCount = pairwiseBatchRatedCount,
                                 mediaItemsMap = mediaItemsMap,
                                 compareMediaType = compareMediaType,
                                 compareStrategy = compareStrategy,

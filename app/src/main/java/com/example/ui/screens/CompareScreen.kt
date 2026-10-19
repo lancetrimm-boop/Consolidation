@@ -128,6 +128,7 @@ private enum class CompareFilterGroup {
 fun CompareScreen(
     pairwiseState: PairwiseComparison,
     session: CompareSelectionSession = CompareSelectionSession(),
+    batchRatedCount: Int = 0,
     mediaItemsMap: Map<String, MediaItem> = emptyMap(),
     compareMediaType: CompareMediaTypeFilter = CompareMediaTypeFilter.PHOTOS,
     compareStrategy: CompareStrategy = CompareStrategy.PERSONALIZED,
@@ -238,6 +239,8 @@ fun CompareScreen(
         )
     }
 
+    val displayPairIndex = if (batchRatedCount <= 0) 1 else batchRatedCount.coerceAtMost(100)
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isLandscape = this.maxWidth > this.maxHeight
         
@@ -249,7 +252,7 @@ fun CompareScreen(
             if (!isLandscape) {
                 AuraSectionHeader(
                     title = if (session.isActive) "Compare Selection" else "Compare",
-                    subtitle = if (session.isActive) "Session Active • Round ${session.roundNumber}" else "Teach Aura what you like",
+                    subtitle = if (session.isActive) "Session Active • Round ${session.roundNumber}" else "Pair $displayPairIndex / 100 • Teach Aura what you like",
                     actions = {
                         IconButton(onClick = { showInfoDialog = true }) {
                             Icon(imageVector = Icons.Outlined.Info, contentDescription = "Info", tint = MaterialTheme.colorScheme.onSurface)
@@ -267,7 +270,7 @@ fun CompareScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = if (session.isActive) "Compare Selection — Round ${session.roundNumber}" else "Compare",
+                        text = if (session.isActive) "Compare Selection — Round ${session.roundNumber}" else "Compare — Pair $displayPairIndex / 100",
                         style = MaterialTheme.typography.titleSmall,
                         color = DiscoveryViolet,
                         fontWeight = FontWeight.Black
@@ -574,24 +577,14 @@ private fun CompareMediaTile(
     // AURA REPAIR: Track if video is actually rendering to prevent black frame gap
     var isVideoRendering by remember(item.id) { mutableStateOf(false) }
 
-    val aspectRatio = remember(item.width, item.height) {
-        if (item.width > 0 && item.height > 0) {
-            (item.width.toFloat() / item.height.toFloat()).coerceIn(0.2f, 5.0f)
-        } else {
-            1.0f
-        }
-    }
-
     Box(
         modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(aspectRatio)
+            .fillMaxSize()
             .clip(RoundedCornerShape(16.dp))
             .background(AuraMidnight)
             .border(1.dp, AuraSubtleBorder, RoundedCornerShape(16.dp))
             .clickable { onSelect() }
-            .testTag(testTag),
-        contentAlignment = Alignment.Center
+            .testTag(testTag)
     ) {
         // LAYER 1: Authoritative Thumbnail Component as baseline / photo preview
         AuraMediaThumbnail(

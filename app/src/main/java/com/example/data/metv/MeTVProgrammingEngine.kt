@@ -196,7 +196,7 @@ class MeTVProgrammingEngine {
 
             // Exposure Penalty (Persistent exposures, skips, and active session preview exposures reduce score)
             if (effectiveExposure > 0f) {
-                val penalty = (effectiveExposure * 0.12f).coerceAtMost(0.60f)
+                val penalty = (effectiveExposure * 0.20f).coerceAtMost(1.20f)
                 score -= penalty
             }
 

@@ -57,4 +57,21 @@ class PairwiseResetAndMediaTypeTest {
         val isVideoB = video1.mediaType.uppercase().contains("VIDEO")
         assertNotEquals(isVideoA, isVideoB)
     }
+
+    @Test
+    fun testBatchCounterAndTransition() = runTest {
+        val p1 = MediaItem(id = "p1", title = "P1", mediaType = "PHOTO", compatibilityStatus = CompatibilityStatus.PLAYABLE)
+        val p2 = MediaItem(id = "p2", title = "P2", mediaType = "PHOTO", compatibilityStatus = CompatibilityStatus.PLAYABLE)
+        repository.setMediaItemsForTesting(listOf(p1, p2))
+
+        assertEquals(0, repository.pairwiseBatchRatedCount.value)
+
+        // Skips do NOT increment batch counter
+        repository.skipComparison()
+        assertEquals(0, repository.pairwiseBatchRatedCount.value)
+
+        // Record 1 vote
+        repository.recordComparisonVote("p1")
+        assertEquals(1, repository.pairwiseBatchRatedCount.value)
+    }
 }
