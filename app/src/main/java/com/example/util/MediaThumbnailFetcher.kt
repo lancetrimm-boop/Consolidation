@@ -238,6 +238,40 @@ object MediaThumbnailFetcher {
         }
     }
 
+    suspend fun getNativeDimensions(context: Context, uriString: String): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        if (uriString.isBlank()) return@withContext 0 to 0
+        val uri = if (uriString.startsWith("/")) Uri.fromFile(File(uriString)) else Uri.parse(uriString)
+        val mimeType = try { context.contentResolver.getType(uri) } catch (_: Exception) { null }
+        if (MediaCompatibility.isSupportedPhoto(mimeType, uriString)) {
+            try {
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+                if (options.outWidth > 0 && options.outHeight > 0) {
+                    return@withContext options.outWidth to options.outHeight
+                }
+            } catch (_: Exception) {}
+        }
+        val retriever = MediaMetadataRetriever()
+        return@withContext try {
+            if (uriString.startsWith("content://") || uriString.startsWith("file://") || uriString.startsWith("/")) {
+                retriever.setDataSource(context, uri)
+            } else retriever.setDataSource(uriString)
+            val rotStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION) } catch (_: Exception) { null }
+            val rotation = rotStr?.toIntOrNull() ?: 0
+            val wStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH) } catch (_: Exception) { null }
+            val hStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) } catch (_: Exception) { null }
+            val rawW = wStr?.toIntOrNull() ?: 0
+            val rawH = hStr?.toIntOrNull() ?: 0
+            val w = if (rotation == 90 || rotation == 270) rawH else rawW
+            val h = if (rotation == 90 || rotation == 270) rawW else rawH
+            w to h
+        } catch (_: Exception) {
+            0 to 0
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+    }
+
     private fun isValidBitmap(bitmap: Bitmap?) =
         bitmap != null && !bitmap.isRecycled && bitmap.width > 0 && bitmap.height > 0
 

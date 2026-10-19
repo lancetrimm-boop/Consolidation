@@ -589,10 +589,32 @@ private fun CompareMediaTile(
 
     // AURA REPAIR: Track if video is actually rendering to prevent black frame gap
     var isVideoRendering by remember(item.id) { mutableStateOf(false) }
+    val context = LocalContext.current
+    var resolvedWidth by remember(item.id, item.width) { mutableStateOf(item.width) }
+    var resolvedHeight by remember(item.id, item.height) { mutableStateOf(item.height) }
 
-    val aspectRatio = remember(item.width, item.height) {
+    LaunchedEffect(item.id, item.uriPath, item.imageUrl, item.width, item.height) {
         if (item.width > 0 && item.height > 0) {
-            (item.width.toFloat() / item.height.toFloat()).coerceIn(0.25f, 4.0f)
+            resolvedWidth = item.width
+            resolvedHeight = item.height
+        } else {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val uriStr = item.uriPath.ifEmpty { item.imageUrl }
+                if (uriStr.isNotBlank()) {
+                    val (w, h) = com.example.util.MediaThumbnailFetcher.getNativeDimensions(context, uriStr)
+                    if (w > 0 && h > 0) {
+                        resolvedWidth = w
+                        resolvedHeight = h
+                        com.example.data.MediaRepository.getInstance(context).updateItemDimensions(item.id, w, h)
+                    }
+                }
+            }
+        }
+    }
+
+    val aspectRatio = remember(resolvedWidth, resolvedHeight) {
+        if (resolvedWidth > 0 && resolvedHeight > 0) {
+            (resolvedWidth.toFloat() / resolvedHeight.toFloat()).coerceIn(0.25f, 4.0f)
         } else {
             1.0f
         }
