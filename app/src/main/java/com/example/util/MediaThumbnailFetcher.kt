@@ -173,8 +173,27 @@ object MediaThumbnailFetcher {
             } else retriever.setDataSource(uriString)
             val rotStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION) } catch (_: Exception) { null }
             val rotation = rotStr?.toIntOrNull() ?: 0
+
+            val wStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH) } catch (_: Exception) { null }
+            val hStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) } catch (_: Exception) { null }
+            val nativeW = wStr?.toIntOrNull() ?: 0
+            val nativeH = hStr?.toIntOrNull() ?: 0
+
+            val effectiveW = if (rotation == 90 || rotation == 270) nativeH else nativeW
+            val effectiveH = if (rotation == 90 || rotation == 270) nativeW else nativeH
+
+            val (targetW, targetH) = if (effectiveW > 0 && effectiveH > 0) {
+                val maxEdge = maxOf(effectiveW, effectiveH).toFloat()
+                val scale = TARGET_THUMBNAIL_SIZE.toFloat() / maxEdge
+                val tW = (effectiveW * scale).toInt().coerceAtLeast(64)
+                val tH = (effectiveH * scale).toInt().coerceAtLeast(64)
+                tW to tH
+            } else {
+                TARGET_THUMBNAIL_SIZE to TARGET_THUMBNAIL_SIZE
+            }
+
             val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, TARGET_THUMBNAIL_SIZE, TARGET_THUMBNAIL_SIZE)
+                retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetW, targetH)
             } else {
                 retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             } ?: try { retriever.frameAtTime } catch (_: Exception) { null }
