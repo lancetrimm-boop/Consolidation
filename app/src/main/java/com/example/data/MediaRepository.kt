@@ -1267,6 +1267,19 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
     }
 
+    fun updateItemDimensions(itemId: String, width: Int, height: Int) {
+        if (width <= 0 || height <= 0) return
+        scope.launch(dispatcher) {
+            updateMediaItemsState { list ->
+                list.map { if (it.id == itemId && (it.width <= 0 || it.height <= 0)) it.copy(width = width, height = height) else it }
+            }
+            val entity = database?.mediaDao()?.getMediaById(itemId)
+            if (entity != null && (entity.width <= 0 || entity.height <= 0)) {
+                database?.mediaDao()?.update(entity.copy(width = width, height = height))
+            }
+        }
+    }
+
     fun updatePlaybackErrorRecovery(id: Long, attempted: Boolean, successful: Boolean?) {
         val repo = playbackErrorLogRepository ?: return
         scope.launch {
