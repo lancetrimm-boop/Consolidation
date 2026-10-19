@@ -240,7 +240,7 @@ fun CompareScreen(
         )
     }
 
-    val displayPairIndex = if (batchRatedCount <= 0) 1 else batchRatedCount.coerceAtMost(100)
+    val displayPairIndex = if (batchRatedCount <= 0) 1 else batchRatedCount.coerceAtMost(10)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val isLandscape = this.maxWidth > this.maxHeight
@@ -253,7 +253,7 @@ fun CompareScreen(
             if (!isLandscape) {
                 AuraSectionHeader(
                     title = if (session.isActive) "Compare Selection" else "Compare",
-                    subtitle = if (session.isActive) "Session Active • Round ${session.roundNumber}" else "Pair $displayPairIndex / 100 • Teach Aura what you like",
+                    subtitle = if (session.isActive) "Session Active • Round ${session.roundNumber}" else "Pair $displayPairIndex / 10 • Teach Aura what you like",
                     actions = {
                         IconButton(onClick = { showInfoDialog = true }) {
                             Icon(imageVector = Icons.Outlined.Info, contentDescription = "Info", tint = MaterialTheme.colorScheme.onSurface)
@@ -271,7 +271,7 @@ fun CompareScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = if (session.isActive) "Compare Selection — Round ${session.roundNumber}" else "Compare — Pair $displayPairIndex / 100",
+                        text = if (session.isActive) "Compare Selection — Round ${session.roundNumber}" else "Compare — Pair $displayPairIndex / 10",
                         style = MaterialTheme.typography.titleSmall,
                         color = DiscoveryViolet,
                         fontWeight = FontWeight.Black

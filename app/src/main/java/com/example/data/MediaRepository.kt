@@ -1897,7 +1897,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
 
         val newRatedCount = _pairwiseBatchRatedCount.value + 1
-        if (newRatedCount >= 100) {
+        if (newRatedCount >= 10) {
             _pairwiseBatchRatedCount.value = 1
             _pairwiseBatchNumber.update { it + 1 }
             preFetchedPair = null
