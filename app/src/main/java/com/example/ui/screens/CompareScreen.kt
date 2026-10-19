@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -563,14 +564,24 @@ private fun CompareMediaTile(
     // AURA REPAIR: Track if video is actually rendering to prevent black frame gap
     var isVideoRendering by remember(item.id) { mutableStateOf(false) }
 
+    val aspectRatio = remember(item.width, item.height) {
+        if (item.width > 0 && item.height > 0) {
+            (item.width.toFloat() / item.height.toFloat()).coerceIn(0.2f, 5.0f)
+        } else {
+            1.0f
+        }
+    }
+
     Box(
         modifier = modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .aspectRatio(aspectRatio)
             .clip(RoundedCornerShape(16.dp))
             .background(AuraMidnight)
             .border(1.dp, AuraSubtleBorder, RoundedCornerShape(16.dp))
             .clickable { onSelect() }
-            .testTag(testTag)
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
     ) {
         // LAYER 1: Authoritative Thumbnail Component as baseline / photo preview
         AuraMediaThumbnail(

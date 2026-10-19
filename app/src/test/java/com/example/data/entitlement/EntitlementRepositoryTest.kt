@@ -37,7 +37,7 @@ class EntitlementRepositoryTest {
     }
 
     @Test
-    fun `TEST 2 - Persisted PRO state is loaded correctly`() = runBlocking {
+    fun `TEST 2 - Persisted legacy PRO state is safely reset to FREE`() = runBlocking {
         whenever(mockDao.getPreference("aura_pro_status_v1")).thenReturn(
             UserPreferenceEntity("aura_pro_status_v1", "PRO")
         )
@@ -45,7 +45,7 @@ class EntitlementRepositoryTest {
         repository = EntitlementRepository(mockDao, testScope)
         
         val state = repository.proState.value
-        assertTrue("Expected Pro state when persisted preference is PRO", state is ProState.Pro)
+        assertTrue("Expected Free state when legacy PRO preference is loaded (no lifetime customers)", state is ProState.Free)
     }
 
     @Test

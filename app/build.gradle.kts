@@ -65,7 +65,7 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH")
         ?: (project.findProperty("KEYSTORE_PATH") as? String)
         ?: localProps.getProperty("KEYSTORE_PATH")
-        ?: "C:/Users/lance/Desktop/Keystore/Google Play Credentials/Keystore/aura-play-upload-2026.jks"
+        ?: "C:/Users/lance/Downloads/Keystore/aura-play-upload-2026.jks"
 
       val storePass = System.getenv("STORE_PASSWORD")
         ?: (project.findProperty("STORE_PASSWORD") as? String)
@@ -148,18 +148,6 @@ android {
   }
 }
 
-gradle.taskGraph.whenReady {
-  val hasReleaseTask = hasTask(":app:bundleConsumerRelease") ||
-                       hasTask(":app:bundleDeveloperRelease") ||
-                       hasTask(":app:assembleConsumerRelease") ||
-                       hasTask(":app:assembleDeveloperRelease")
-  val releaseConfig = extensions.findByType(com.android.build.api.dsl.ApplicationExtension::class.java)?.signingConfigs?.findByName("release")
-  if (hasReleaseTask && (releaseConfig?.storeFile == null || releaseConfig?.storePassword == null)) {
-    logger.warn(
-      "Release signing configuration is incomplete or keystore is missing. Falling back to debug signing configuration."
-    )
-  }
-}
 
 kotlin {
   jvmToolchain(21)

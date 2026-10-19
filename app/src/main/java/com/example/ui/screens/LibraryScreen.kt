@@ -637,7 +637,6 @@ fun LibraryContent(
                 isRefreshing = state.scanProgress.isScanning && state.scanProgress.isManual,
                 onRefresh = { 
                     onRefresh()
-                    stableItems = emptyList() // Force reload on manual refresh
                 },
                 modifier = Modifier.fillMaxSize()
             ) {

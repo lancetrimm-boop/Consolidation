@@ -15,9 +15,6 @@ import kotlinx.coroutines.launch
  * 2. Persist local entitlement state to encrypted storage (SQLCipher).
  * 3. Enforce feature access decisions.
  * 4. Emit access-denied events for paywall triggering.
- * 
- * Note: This repository is Billing-agnostic. Google Play Billing integration
- * will be handled via a separate manager that updates this repository.
  */
 class EntitlementRepository(
     private val preferenceDao: UserPreferenceDao,
@@ -37,19 +34,19 @@ class EntitlementRepository(
     }
 
     /**
-     * Loads the last successfully verified entitlement from encrypted storage.
-     * Ensures Pro functionality is available offline for verified users.
+     * Loads local entitlement state.
+     * Transitional safety: Legacy lifetime Pro support has been removed.
+     * Stale legacy "PRO" preferences are safely reset to Free.
      */
     private fun loadLocalEntitlement() {
         scope.launch {
             try {
                 val pref = preferenceDao.getPreference(PREF_KEY_STATUS)
-                _proState.value = when (pref?.value) {
-                    "PRO" -> ProState.Pro()
-                    "FREE" -> ProState.Free
-                    else -> ProState.Free // Default to Free if never set
+                if (pref?.value == "PRO") {
+                    preferenceDao.insertPreference(UserPreferenceEntity(PREF_KEY_STATUS, "FREE"))
                 }
-                Log.d(TAG, "Local entitlement loaded: ${_proState.value}")
+                _proState.value = ProState.Free
+                Log.d(TAG, "Local entitlement loaded (Free tier enforced): ${_proState.value}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load local entitlement", e)
                 _proState.value = ProState.Free // Safety fallback
@@ -61,8 +58,17 @@ class EntitlementRepository(
      * Updates and persists the entitlement state.
      * To be called by BillingManager or manual restore actions.
      */
-    suspend fun updateEntitlement(isPro: Boolean, purchaseToken: String? = null) {
-        val newState = if (isPro) ProState.Pro(purchaseToken) else ProState.Free
+    suspend fun updateEntitlement(
+        isPro: Boolean,
+        purchaseToken: String? = null,
+        subscriptionType: SubscriptionType = SubscriptionType.MONTHLY,
+        expiresAtMillis: Long = 0L
+    ) {
+        val newState = if (isPro) {
+            ProState.Pro(purchaseToken, subscriptionType, expiresAtMillis)
+        } else {
+            ProState.Free
+        }
         _proState.value = newState
         
         try {
@@ -84,7 +90,6 @@ class EntitlementRepository(
         if (current.isPro) {
             return true
         } else {
-            // Asynchronously notify that a Pro feature was requested and denied
             scope.launch {
                 _accessDeniedEvents.emit(feature)
             }
