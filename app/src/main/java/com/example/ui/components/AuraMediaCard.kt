@@ -350,8 +350,41 @@ fun AuraMediaThumbnail(
                         )
                 )
             }
+            !isVideo -> {
+                val mediaUri = if (!convertedUri.isNullOrEmpty()) convertedUri else if (uriPath.isNotEmpty()) uriPath else imageUrl
+                if (mediaUri.isNotEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // Blurred Background
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(mediaUri)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur(30.dp)
+                                .graphicsLayer(alpha = 0.5f),
+                            contentScale = ContentScale.Crop
+                        )
+                        // Aspect-Fit Foreground at True Natural Proportions
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(mediaUri)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                } else {
+                    // Fallback if empty
+                    Box(modifier = Modifier.fillMaxSize())
+                }
+            }
             result.bitmap != null && result.itemId == itemId -> {
-                // State 2: Success (Identity Verified)
+                // State 2: Success (Identity Verified - Video Thumbnail)
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Blurred Background
                     Image(
@@ -379,7 +412,7 @@ fun AuraMediaThumbnail(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = if (isVideo) Icons.Outlined.Movie else Icons.Outlined.Image,
+                        imageVector = Icons.Outlined.Movie,
                         contentDescription = "Preview Unavailable",
                         tint = AuraMutedSlate.copy(alpha = 0.4f),
                         modifier = Modifier.size(32.dp)

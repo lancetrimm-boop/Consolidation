@@ -172,7 +172,7 @@ class MeTVProgrammingEngine {
 
             // Lane 1 Boost: Novelty (Unseen items with 0 total effective exposure)
             if (effectiveExposure < 0.1f) {
-                score += 0.30f
+                score += 0.45f
             }
 
             // Lane 2 Boost: Rediscover
@@ -196,7 +196,7 @@ class MeTVProgrammingEngine {
 
             // Exposure Penalty (Persistent exposures, skips, and active session preview exposures reduce score)
             if (effectiveExposure > 0f) {
-                val penalty = (effectiveExposure * 0.20f).coerceAtMost(1.20f)
+                val penalty = (effectiveExposure * 0.35f).coerceAtMost(2.0f)
                 score -= penalty
             }
 

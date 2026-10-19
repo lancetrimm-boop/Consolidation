@@ -41,17 +41,16 @@ class ChannelViewModelTest {
     }
 
     @Test
-    fun testRefreshChannels_TogglesIsRefreshingState() = testScope.runTest {
-        repository.setMediaItemsForTesting(listOf(createMediaItem("v1", "Video 1")))
+    fun testLoadChannelPreviews_SuccessPopulatesPreviews() = testScope.runTest {
+        repository.setMediaItemsForTesting(listOf(createMediaItem("v1", "Video 1"), createMediaItem("v2", "Video 2")))
         advanceUntilIdle()
 
-        assertFalse(viewModel.isRefreshing.value)
-
-        viewModel.refreshChannels()
-        // During coroutine execution before completion
+        viewModel.loadChannelPreviews()
         advanceUntilIdle()
 
-        assertFalse(viewModel.isRefreshing.value)
+        assertFalse(viewModel.isLoading.value)
+        assertNotNull(viewModel.channelPreviews.value)
+        assertEquals(viewModel.allChannels.size, viewModel.channelPreviews.value.size)
     }
 
     @Test
@@ -70,5 +69,22 @@ class ChannelViewModelTest {
         val previewsAfter = viewModel.channelPreviews.value
         assertNotNull(previewsAfter)
         assertEquals(viewModel.allChannels.size, previewsAfter.size)
+    }
+
+    @Test
+    fun testLoadChannelPreviews_EnforcesCrossChannelDeduplication() = testScope.runTest {
+        val items = (1..300).map { createMediaItem("v$it", "Video $it") }
+        repository.setMediaItemsForTesting(items)
+        advanceUntilIdle()
+
+        viewModel.loadChannelPreviews()
+        advanceUntilIdle()
+
+        val previews = viewModel.channelPreviews.value
+        val allAssignedIds = previews.flatMap { it.fullItems.map { item -> item.id } }
+        val uniqueIds = allAssignedIds.toSet()
+
+        // Verify that across all simultaneously displayed channel carousels, every media ID appears at most once
+        assertEquals(allAssignedIds.size, uniqueIds.size)
     }
 }

@@ -96,31 +96,33 @@ class ChannelViewModel(
                     decayedExposureMap = available.associate { it.id to it.getDecayedExposure() }
                 )
 
-                val usedPreviewIds = mutableSetOf<String>()
+                val allocatedMediaIds = mutableSetOf<String>()
 
                 val states = allChannels.map { channel ->
-                    val programmed = programmer.programChannel(channel, context, limit = 20)
+                    val filteredAvailable = available.filter { it.id !in allocatedMediaIds }
+                    val unallocatedContext = context.copy(availableMedia = filteredAvailable)
+                    var programmed = programmer.programChannel(channel, unallocatedContext, limit = 20)
+
+                    if (programmed.isEmpty() && available.isNotEmpty()) {
+                        // Fallback if pool depleted: program from total pool
+                        programmed = programmer.programChannel(channel, context, limit = 20)
+                    }
+
+                    programmed.forEach { allocatedMediaIds.add(it.id) }
 
                     val candidate = if (channel.channelKind == ChannelKind.SEARCH_SEEDED && channel.referenceMediaIds.isNotEmpty()) {
                         val firstRefId = channel.referenceMediaIds.first()
                         programmed.find { it.id == firstRefId }
                             ?: available.find { it.id == firstRefId }
-                            ?: programmed.firstOrNull { it.id !in usedPreviewIds }
+                            ?: programmed.firstOrNull()
                     } else {
-                        programmed.firstOrNull { it.id !in usedPreviewIds }
+                        programmed.firstOrNull()
                     }
-                    if (candidate != null) {
-                        usedPreviewIds.add(candidate.id)
-                    }
-
-                    val adjustedFullItems = if (candidate != null) {
-                        listOf(candidate) + programmed.filter { it.id != candidate.id }
-                    } else programmed
 
                     ChannelPreviewState(
                         channel = channel,
                         candidateItem = candidate,
-                        fullItems = adjustedFullItems
+                        fullItems = programmed
                     )
                 }
                 _channelPreviews.value = states
@@ -235,31 +237,33 @@ class ChannelViewModel(
                     decayedExposureMap = available.associate { it.id to it.getDecayedExposure() }
                 )
 
-                val usedPreviewIds = mutableSetOf<String>()
+                val allocatedMediaIds = mutableSetOf<String>()
 
                 val states = allChannels.map { channel ->
-                    val programmed = programmer.programChannel(channel, context, limit = 20)
+                    val filteredAvailable = available.filter { it.id !in allocatedMediaIds }
+                    val unallocatedContext = context.copy(availableMedia = filteredAvailable)
+                    var programmed = programmer.programChannel(channel, unallocatedContext, limit = 20)
+
+                    if (programmed.isEmpty() && available.isNotEmpty()) {
+                        // Fallback if pool depleted: program from total pool
+                        programmed = programmer.programChannel(channel, context, limit = 20)
+                    }
+
+                    programmed.forEach { allocatedMediaIds.add(it.id) }
 
                     val candidate = if (channel.channelKind == ChannelKind.SEARCH_SEEDED && channel.referenceMediaIds.isNotEmpty()) {
                         val firstRefId = channel.referenceMediaIds.first()
                         programmed.find { it.id == firstRefId }
                             ?: available.find { it.id == firstRefId }
-                            ?: programmed.firstOrNull { it.id !in usedPreviewIds }
+                            ?: programmed.firstOrNull()
                     } else {
-                        programmed.firstOrNull { it.id !in usedPreviewIds }
+                        programmed.firstOrNull()
                     }
-                    if (candidate != null) {
-                        usedPreviewIds.add(candidate.id)
-                    }
-
-                    val adjustedFullItems = if (candidate != null) {
-                        listOf(candidate) + programmed.filter { it.id != candidate.id }
-                    } else programmed
 
                     ChannelPreviewState(
                         channel = channel,
                         candidateItem = candidate,
-                        fullItems = adjustedFullItems
+                        fullItems = programmed
                     )
                 }
                 _channelPreviews.value = states
