@@ -597,18 +597,17 @@ private fun CompareMediaTile(
         if (item.width > 0 && item.height > 0) {
             resolvedWidth = item.width
             resolvedHeight = item.height
-        } else {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val uriStr = item.uriPath.ifEmpty { item.imageUrl }
-                if (uriStr.isNotBlank()) {
-                    val (w, h) = com.example.util.MediaThumbnailFetcher.getNativeDimensions(context, uriStr)
-                    if (w > 0 && h > 0) {
-                        resolvedWidth = w
-                        resolvedHeight = h
-                        com.example.data.MediaRepository.getInstance(context).updateItemDimensions(item.id, w, h)
-                    }
-                }
-            }
+            return@LaunchedEffect
+        }
+        val uriStr = item.uriPath.ifEmpty { item.imageUrl }
+        if (uriStr.isBlank()) return@LaunchedEffect
+
+        // getNativeDimensions already hops to IO; stay on Main for state writes
+        val (w, h) = com.example.util.MediaThumbnailFetcher.getNativeDimensions(context, uriStr)
+        if (w > 0 && h > 0) {
+            resolvedWidth = w
+            resolvedHeight = h
+            com.example.data.MediaRepository.getInstance(context).updateItemDimensions(item.id, w, h)
         }
     }
 

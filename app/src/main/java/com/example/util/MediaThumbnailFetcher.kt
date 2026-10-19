@@ -9,6 +9,7 @@ import android.os.Build
 import android.util.Log
 import android.util.LruCache
 import android.util.Size
+import android.media.ExifInterface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -244,12 +245,60 @@ object MediaThumbnailFetcher {
         val mimeType = try { context.contentResolver.getType(uri) } catch (_: Exception) { null }
         if (MediaCompatibility.isSupportedPhoto(mimeType, uriString)) {
             try {
+                var width = 0
+                var height = 0
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-                if (options.outWidth > 0 && options.outHeight > 0) {
-                    return@withContext options.outWidth to options.outHeight
+                var decoded = false
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        BitmapFactory.decodeStream(stream, null, options)
+                    }
+                    decoded = options.outWidth > 0 && options.outHeight > 0
+                } catch (e: Exception) {
+                    Log.w(TAG, "openInputStream failed for photo $uriString: ${e.message}")
                 }
-            } catch (_: Exception) {}
+                if (!decoded && uriString.startsWith("/")) {
+                    try {
+                        BitmapFactory.decodeFile(uriString, options)
+                        decoded = options.outWidth > 0 && options.outHeight > 0
+                    } catch (e: Exception) {
+                        Log.w(TAG, "decodeFile failed for photo $uriString: ${e.message}")
+                    }
+                }
+                if (decoded) {
+                    width = options.outWidth
+                    height = options.outHeight
+                    try {
+                        val inputStream = try { context.contentResolver.openInputStream(uri) } catch (_: Exception) { null }
+                            ?: if (uriString.startsWith("/")) File(uriString).inputStream() else null
+                        if (inputStream != null) {
+                            inputStream.use { stream ->
+                                val exif = ExifInterface(stream)
+                                val orientation = exif.getAttributeInt(
+                                    ExifInterface.TAG_ORIENTATION,
+                                    ExifInterface.ORIENTATION_NORMAL
+                                )
+                                val rotationDegrees = when (orientation) {
+                                    ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                                    ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                                    ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                                    else -> 0
+                                }
+                                if (MediaOrientationUtils.shouldSwapDimensions(rotationDegrees)) {
+                                    val temp = width
+                                    width = height
+                                    height = temp
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "EXIF extraction failed for $uriString: ${e.message}")
+                    }
+                    return@withContext width to height
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Photo native dimension resolution failed for $uriString: ${e.message}")
+            }
         }
         val retriever = MediaMetadataRetriever()
         return@withContext try {
@@ -262,10 +311,12 @@ object MediaThumbnailFetcher {
             val hStr = try { retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) } catch (_: Exception) { null }
             val rawW = wStr?.toIntOrNull() ?: 0
             val rawH = hStr?.toIntOrNull() ?: 0
-            val w = if (rotation == 90 || rotation == 270) rawH else rawW
-            val h = if (rotation == 90 || rotation == 270) rawW else rawH
+            val swap = MediaOrientationUtils.shouldSwapDimensions(rotation)
+            val w = if (swap) rawH else rawW
+            val h = if (swap) rawW else rawH
             w to h
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "MediaMetadataRetriever native dimension resolution failed for $uriString: ${e.message}")
             0 to 0
         } finally {
             try { retriever.release() } catch (_: Exception) {}
