@@ -593,7 +593,7 @@ private fun CompareMediaTile(
     var resolvedWidth by remember(item.id, item.width) { mutableStateOf(item.width) }
     var resolvedHeight by remember(item.id, item.height) { mutableStateOf(item.height) }
 
-    LaunchedEffect(item.id, item.uriPath, item.imageUrl, item.width, item.height) {
+    LaunchedEffect(item.id) {
         if (item.width > 0 && item.height > 0) {
             resolvedWidth = item.width
             resolvedHeight = item.height
