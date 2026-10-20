@@ -35,18 +35,19 @@ class EntitlementRepository(
 
     /**
      * Loads local entitlement state.
-     * Transitional safety: Legacy lifetime Pro support has been removed.
-     * Stale legacy "PRO" preferences are safely reset to Free.
+     * Restores valid legacy lifetime Pro preferences without demoting to Free.
      */
     private fun loadLocalEntitlement() {
         scope.launch {
             try {
                 val pref = preferenceDao.getPreference(PREF_KEY_STATUS)
                 if (pref?.value == "PRO") {
-                    preferenceDao.insertPreference(UserPreferenceEntity(PREF_KEY_STATUS, "FREE"))
+                    _proState.value = ProState.Pro(purchaseToken = "LIFETIME_PURCHASE", subscriptionType = SubscriptionType.LIFETIME)
+                    Log.i(TAG, "Local entitlement loaded: Valid Lifetime Pro restored.")
+                } else {
+                    _proState.value = ProState.Free
+                    Log.d(TAG, "Local entitlement loaded: Free tier enforced.")
                 }
-                _proState.value = ProState.Free
-                Log.d(TAG, "Local entitlement loaded (Free tier enforced): ${_proState.value}")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to load local entitlement", e)
                 _proState.value = ProState.Free // Safety fallback

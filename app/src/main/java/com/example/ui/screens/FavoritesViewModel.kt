@@ -29,8 +29,14 @@ class FavoritesViewModel(
         )
 
     fun refreshFavorites() {
-        // Now handled by the reactive flow, but we can trigger a re-rank if needed
-        _isLoading.value = true
-        repository.refreshSort()
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.refreshSort()
+            } finally {
+                kotlinx.coroutines.delay(300)
+                _isLoading.value = false
+            }
+        }
     }
 }

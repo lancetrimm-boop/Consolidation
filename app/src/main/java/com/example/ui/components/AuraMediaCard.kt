@@ -679,24 +679,14 @@ fun AuraContinueWatchingCard(
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 object VideoPreviewPool {
-    private var maxActivePreviews: Int = 8 // Default mid-range baseline
+    private var maxActivePreviews: Int = 2 // Hardware-safe limit (max 2 active MediaCodec decoders)
 
     private fun updateMaxPreviews(context: Context) {
-        if (maxActivePreviews != 8) return // Only compute once
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-        val memoryInfo = android.app.ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(memoryInfo)
-        val totalRamGb = memoryInfo.totalMem / (1024 * 1024 * 1024)
-        
-        maxActivePreviews = when {
-            totalRamGb < 6 -> 4    // Low-end
-            totalRamGb < 12 -> 8   // Mid-range
-            else -> 16             // High-end
-        }
-        Log.i("VideoPreviewPool", "Adaptive allocation: $maxActivePreviews slots (RAM: ${totalRamGb}GB)")
+        maxActivePreviews = 2
+        Log.i("VideoPreviewPool", "Hardware-safe preview limit enforced: $maxActivePreviews slots (App: ${context.packageName})")
     }
     
-    private const val MAX_IDLE_POOL = 4 // Strict limit on idle players to free hardware decoders
+    private const val MAX_IDLE_POOL = 1 // Strict limit on idle players to free hardware decoders
     
     // Key is "itemId_locationTag" to prevent player stealing between different UI contexts
     private val activePlayers = mutableMapOf<String, ExoPlayer>()

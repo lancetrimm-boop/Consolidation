@@ -1561,6 +1561,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             )
             if (e is CancellationException) throw e
             return false
+        } finally {
+            if (_scanProgress.value.scanSessionId == scanId && _scanProgress.value.isScanning) {
+                _scanProgress.value = _scanProgress.value.copy(isScanning = false, isComplete = true)
+            }
         }
     }
     

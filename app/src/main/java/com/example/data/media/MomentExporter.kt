@@ -52,7 +52,6 @@ class MomentExporter(
 
         val outputDir = File(context.cacheDir, "aura_moments")
         if (!outputDir.exists()) outputDir.mkdirs()
-        outputDir.listFiles()?.forEach { it.delete() }
 
         val outputFile = File(outputDir, "Moment_${System.currentTimeMillis()}.mp4")
         
@@ -97,6 +96,53 @@ class MomentExporter(
             val result = encodingEngine.encode(composition, outputFile, onProgress)
             
             if (result.isSuccess) {
+                // Save to MediaStore & Register in Room DB
+                try {
+                    val filename = "AuraMoment_${System.currentTimeMillis()}.mp4"
+                    val contentValues = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Video.Media.DISPLAY_NAME, filename)
+                        put(android.provider.MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_MOVIES + "/AuraMoments")
+                            put(android.provider.MediaStore.Video.Media.IS_PENDING, 1)
+                        }
+                    }
+
+                    val mediaStoreUri = context.contentResolver.insert(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
+                    if (mediaStoreUri != null) {
+                        context.contentResolver.openOutputStream(mediaStoreUri)?.use { out ->
+                            outputFile.inputStream().use { it.copyTo(out) }
+                        }
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            contentValues.clear()
+                            contentValues.put(android.provider.MediaStore.Video.Media.IS_PENDING, 0)
+                            context.contentResolver.update(mediaStoreUri, contentValues, null, null)
+                        }
+                    }
+
+                    val finalUriStr = mediaStoreUri?.toString() ?: Uri.fromFile(outputFile).toString()
+                    val entity = com.example.data.db.MediaEntity(
+                        id = "aura_moment_${System.currentTimeMillis()}",
+                        title = "Aura Moment ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())}",
+                        mediaType = "VIDEO",
+                        year = 2026,
+                        duration = "15s",
+                        durationMs = 15000L,
+                        genre = "Aura Generated Moments",
+                        imageUrl = finalUriStr,
+                        rating = 5.0f,
+                        category = "User Media",
+                        aiSummary = "Aura AI Generated Slideshow Moment",
+                        moodTagsJson = "User Media,Moment",
+                        uriPath = finalUriStr,
+                        dateAdded = System.currentTimeMillis(),
+                        sizeBytes = outputFile.length()
+                    )
+                    com.example.data.MediaRepository.getInstance(context).addMediaEntity(entity)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to publish exported moment to MediaStore/Room", e)
+                }
+
                 ExportState.Success(outputFile)
             } else {
                 outputFile.delete()
