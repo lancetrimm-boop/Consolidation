@@ -1271,11 +1271,19 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         if (width <= 0 || height <= 0) return
         scope.launch(dispatcher) {
             updateMediaItemsState { list ->
-                list.map { if (it.id == itemId && (it.width <= 0 || it.height <= 0)) it.copy(width = width, height = height) else it }
+                list.map { item ->
+                    if (item.id == itemId) {
+                        val isStale = item.width <= 0 || item.height <= 0 || (item.width == 512 && item.height == 512) || (item.width == item.height && width != height)
+                        if (isStale) item.copy(width = width, height = height) else item
+                    } else item
+                }
             }
             val entity = database?.mediaDao()?.getMediaById(itemId)
-            if (entity != null && (entity.width <= 0 || entity.height <= 0)) {
-                database?.mediaDao()?.update(entity.copy(width = width, height = height))
+            if (entity != null) {
+                val isStale = entity.width <= 0 || entity.height <= 0 || (entity.width == 512 && entity.height == 512) || (entity.width == entity.height && width != height)
+                if (isStale) {
+                    database?.mediaDao()?.update(entity.copy(width = width, height = height))
+                }
             }
         }
     }

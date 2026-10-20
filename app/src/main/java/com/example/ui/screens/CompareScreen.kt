@@ -429,7 +429,7 @@ fun CompareScreen(
                                     traitBadge = traitContrast?.badgeA,
                                     onSelect = { onMediaSelect?.invoke(pairwiseState.optionA) },
                                     onFavoriteToggle = { onFavoriteToggle?.invoke(pairwiseState.optionA.id) },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().weight(1f),
                                     testTag = "choose_option_a"
                                 )
                             }
@@ -461,7 +461,7 @@ fun CompareScreen(
                                     traitBadge = traitContrast?.badgeB,
                                     onSelect = { onMediaSelect?.invoke(pairwiseState.optionB) },
                                     onFavoriteToggle = { onFavoriteToggle?.invoke(pairwiseState.optionB.id) },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().weight(1f),
                                     testTag = "choose_option_b"
                                 )
                             }
@@ -611,18 +611,8 @@ private fun CompareMediaTile(
         }
     }
 
-    val aspectRatio = remember(resolvedWidth, resolvedHeight) {
-        if (resolvedWidth > 0 && resolvedHeight > 0) {
-            (resolvedWidth.toFloat() / resolvedHeight.toFloat()).coerceIn(0.25f, 4.0f)
-        } else {
-            1.0f
-        }
-    }
-
     Box(
         modifier = modifier
-            .fillMaxWidth()
-            .aspectRatio(aspectRatio)
             .clip(RoundedCornerShape(16.dp))
             .background(AuraMidnight)
             .border(1.dp, AuraSubtleBorder, RoundedCornerShape(16.dp))

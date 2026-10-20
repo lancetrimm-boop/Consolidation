@@ -1033,7 +1033,7 @@ fun VideoTilePreview(
                     )
                     this.player = player
                     useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setEnableComposeSurfaceSyncWorkaround(true)
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     playerViewRef = this
@@ -1041,7 +1041,7 @@ fun VideoTilePreview(
             },
             update = { playerView ->
                 playerViewRef = playerView
-                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 if (playerView.player != player) {
                     playerView.player = player
                 }

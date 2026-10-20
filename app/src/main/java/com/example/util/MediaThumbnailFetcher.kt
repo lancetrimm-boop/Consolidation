@@ -199,7 +199,11 @@ object MediaThumbnailFetcher {
                 retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             } ?: try { retriever.frameAtTime } catch (_: Exception) { null }
             if (isValidBitmap(frame)) {
-                if (rotation != 0) MediaOrientationUtils.rotateBitmapIfNeeded(frame!!, rotation) else frame
+                if (rotation != 0 && frame!!.width != effectiveW && frame.height != effectiveH) {
+                    MediaOrientationUtils.rotateBitmapIfNeeded(frame, rotation)
+                } else {
+                    frame
+                }
             } else null
         } catch (e: Exception) {
             Log.w(TAG, "MediaMetadataRetriever failed for $uriString: ${e.message}")
