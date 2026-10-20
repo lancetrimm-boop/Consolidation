@@ -51,9 +51,10 @@ class CleanupReviewViewModel(
         viewModelScope.launch {
             kotlinx.coroutines.flow.combine(
                 repository.databaseState,
+                repository.mediaItems,
                 diagnosticMediaStore.ineligibleItems,
                 entitlementRepository.proState
-            ) { dbState, _, proState ->
+            ) { dbState, _, _, proState ->
                 Pair(dbState, proState)
             }.collect { (dbState, _) ->
                 if (dbState != com.example.data.DatabaseState.READY) {
@@ -94,63 +95,62 @@ class CleanupReviewViewModel(
                 val stats = repository.intelligenceStats.value
 
                 kotlinx.coroutines.withContext(backgroundDispatcher) {
-                    val recommendations = if (ineligibleEntries.isNotEmpty()) {
-                        ineligibleEntries.map { entry ->
-                            val reasonText = entry.reasons.joinToString { it.name }
-                            CleanupRecommendation(
-                                mediaId = entry.id,
-                                keepScore = 0.0f,
-                                confidenceScore = 1.0f,
-                                category = CleanupCategory.UNPLAYABLE_FILES,
-                                reasons = listOf(CleanupReason.UNPLAYABLE_MEDIA),
-                                storageSize = entry.sizeBytes,
-                                exposureCount = 0,
-                                createdTimestamp = entry.detectedAtEpochMs,
-                                explanation = "Ineligible: $reasonText"
-                            )
-                        }
-                    } else {
-                        val items = repository.mediaItems.value
-                        val skipCounts = try { repository.getSkipCounts(items.map { it.id }) } catch (_: Exception) { emptyMap() }
-                        
-                        val inputs = items.map { item ->
-                            KeepScoreInput(
-                                mediaId = item.id,
-                                fileSize = item.sizeBytes,
-                                dateAdded = item.dateAdded,
-                                exposureCount = item.exposureCount,
-                                lastExposedTimestamp = item.lastExposedTimestamp,
-                                viewCount = item.viewCount,
-                                playCount = item.viewCount,
-                                averageWatchDuration = if (item.durationMs > 0) (item.lastViewedTimestamp ?: 0L).toFloat() / item.durationMs else 0f,
-                                completionPercentage = item.progress,
-                                skipCount = skipCounts[item.id] ?: 0,
-                                rating = item.rating,
-                                isFavorite = item.isFavorite,
-                                tasteAlignmentScore = 0.5f,
-                                rarityScore = 1.0f,
-                                contentHash = item.contentHash
-                            )
-                        }
-                        val results = inputs.map { KeepScoreEngine.calculateScore(it) }
-                        val metadata = items.associate { item ->
-                            item.id to CleanupItemMetadata(
-                                mediaId = item.id,
-                                title = item.title,
-                                sizeBytes = item.sizeBytes,
-                                exposureCount = item.exposureCount,
-                                viewCount = item.viewCount,
-                                mediaType = item.mediaType,
-                                contentHash = item.contentHash,
-                                isFavorite = item.isFavorite,
-                                width = item.width,
-                                height = item.height,
-                                durationMs = item.durationMs,
-                                dateAdded = item.dateAdded
-                            )
-                        }
-                        CleanupRecommendationEngine.generateRecommendations(results, metadata)
+                    val ineligibleRecs = ineligibleEntries.map { entry ->
+                        val reasonText = entry.reasons.joinToString { it.name }
+                        CleanupRecommendation(
+                            mediaId = entry.id,
+                            keepScore = 0.0f,
+                            confidenceScore = 1.0f,
+                            category = CleanupCategory.UNPLAYABLE_FILES,
+                            reasons = listOf(CleanupReason.UNPLAYABLE_MEDIA),
+                            storageSize = entry.sizeBytes,
+                            exposureCount = 0,
+                            createdTimestamp = entry.detectedAtEpochMs,
+                            explanation = "Ineligible: $reasonText"
+                        )
                     }
+
+                    val items = repository.mediaItems.value
+                    val skipCounts = try { repository.getSkipCounts(items.map { it.id }) } catch (_: Exception) { emptyMap() }
+                    
+                    val inputs = items.map { item ->
+                        KeepScoreInput(
+                            mediaId = item.id,
+                            fileSize = item.sizeBytes,
+                            dateAdded = item.dateAdded,
+                            exposureCount = item.exposureCount,
+                            lastExposedTimestamp = item.lastExposedTimestamp,
+                            viewCount = item.viewCount,
+                            playCount = item.viewCount,
+                            averageWatchDuration = if (item.durationMs > 0) (item.lastViewedTimestamp ?: 0L).toFloat() / item.durationMs else 0f,
+                            completionPercentage = item.progress,
+                            skipCount = skipCounts[item.id] ?: 0,
+                            rating = item.rating,
+                            isFavorite = item.isFavorite,
+                            tasteAlignmentScore = 0.5f,
+                            rarityScore = 1.0f,
+                            contentHash = item.contentHash
+                        )
+                    }
+                    val results = inputs.map { KeepScoreEngine.calculateScore(it) }
+                    val metadata = items.associate { item ->
+                        item.id to CleanupItemMetadata(
+                            mediaId = item.id,
+                            title = item.title,
+                            sizeBytes = item.sizeBytes,
+                            exposureCount = item.exposureCount,
+                            viewCount = item.viewCount,
+                            mediaType = item.mediaType,
+                            contentHash = item.contentHash,
+                            isFavorite = item.isFavorite,
+                            width = item.width,
+                            height = item.height,
+                            durationMs = item.durationMs,
+                            dateAdded = item.dateAdded
+                        )
+                    }
+                    val generatedRecs = CleanupRecommendationEngine.generateRecommendations(results, metadata)
+                    val recommendations = ineligibleRecs + generatedRecs
 
                     val statsMap = CleanupCategory.entries.associateWith { cat ->
                         val catRecs = recommendations.filter { it.category == cat }
@@ -282,7 +282,12 @@ class CleanupReviewViewModel(
     }
 
     private fun applyFiltersAndSort(state: CleanupReviewUiState): CleanupReviewUiState {
-        val filtered = state.recommendations.filter { it.category == state.selectedCategory }
+        val effectiveCategory = if (state.recommendations.none { it.category == state.selectedCategory }) {
+            state.recommendations.map { it.category }.firstOrNull { it != CleanupCategory.NONE } ?: state.selectedCategory
+        } else {
+            state.selectedCategory
+        }
+        val filtered = state.recommendations.filter { it.category == effectiveCategory }
         
         val sorted = when (state.currentSort) {
             ReviewSort.LOWEST_KEEP_SCORE -> filtered.sortedWith(compareBy<CleanupRecommendation> { it.keepScore }.thenBy { it.mediaId })
@@ -292,6 +297,7 @@ class CleanupReviewViewModel(
         }
         
         return state.copy(
+            selectedCategory = effectiveCategory,
             filteredRecommendations = sorted,
             storageRecoveryEstimate = sorted.sumOf { it.storageSize }
         )

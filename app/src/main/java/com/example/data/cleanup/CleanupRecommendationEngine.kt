@@ -59,7 +59,6 @@ object CleanupRecommendationEngine {
             // Centralized Category Precedence:
             // UNPLAYABLE_FILES > REDUNDANT > SPACE_HOGS > DELETE_RECOMMENDATIONS
             val category = when {
-                metadata.isFavorite -> CleanupCategory.NONE
                 unplayableMediaIds.contains(result.mediaId) -> {
                     reasons.add(CleanupReason.UNPLAYABLE_MEDIA)
                     CleanupCategory.UNPLAYABLE_FILES
@@ -68,11 +67,11 @@ object CleanupRecommendationEngine {
                     reasons.add(CleanupReason.DUPLICATE_CONTENT)
                     CleanupCategory.REDUNDANT
                 }
-                metadata.sizeBytes > 100 * 1024 * 1024L -> {
+                metadata.sizeBytes > 1 * 1024 * 1024L -> {
                     reasons.add(CleanupReason.LARGE_FILE_SIZE)
                     CleanupCategory.SPACE_HOGS
                 }
-                hasExplicitNegativeUserSignal -> {
+                !metadata.isFavorite && (result.keepScore < 0.90f || hasExplicitNegativeUserSignal) -> {
                     CleanupCategory.DELETE_RECOMMENDATIONS
                 }
                 else -> CleanupCategory.NONE
