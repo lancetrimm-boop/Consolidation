@@ -14,9 +14,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import com.example.data.MediaItem
 import com.example.data.MediaRepository
 import com.example.ui.theme.*
@@ -134,6 +136,57 @@ fun MyStuffScreen(
                         readiness = readiness,
                         onRetryClick = { repository.retryFailedEnrichment() },
                         modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                val scanProgress by repository.scanProgress.collectAsStateWithLifecycle()
+                val coroutineScope = rememberCoroutineScope()
+                val context = LocalContext.current
+
+                Spacer(modifier = Modifier.height(AuraSpacing.S))
+
+                Button(
+                    onClick = {
+                        if (!scanProgress.isScanning) {
+                            coroutineScope.launch {
+                                repository.scanLocalMedia(context, isManual = true)
+                            }
+                        }
+                    },
+                    enabled = !scanProgress.isScanning,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(AuraSpacing.S),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = DiscoveryViolet,
+                        contentColor = AuraCrispWhite
+                    )
+                ) {
+                    if (scanProgress.isScanning) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = AuraCrispWhite,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Scanning Media...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        Text(text = "Scan New Media", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                if (scanProgress.isComplete && scanProgress.isManual) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Scan complete: ${scanProgress.discoveredCount} new items discovered.",
+                        fontSize = 11.sp,
+                        color = AuraMutedSlate
+                    )
+                } else if (scanProgress.errorCode != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Scan failed: ${scanProgress.errorCode}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.error
                     )
                 }
             }
