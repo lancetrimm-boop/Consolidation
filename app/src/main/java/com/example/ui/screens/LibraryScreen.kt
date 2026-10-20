@@ -239,6 +239,7 @@ fun LibraryContent(
     // Multi-select state
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
+    var isManualRefreshing by remember { mutableStateOf(false) }
 
     // AURA REPAIR: Bug A - UI-owned search input state to prevent typing corruption
     var searchFieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
@@ -633,10 +634,20 @@ fun LibraryContent(
                 com.example.ui.components.AdmissionProgressBanner(progress = state.admissionProgress)
             }
 
+            val isRefreshingState = (state.scanProgress.isScanning && state.scanProgress.isManual) || isManualRefreshing
+
             PullToRefreshBox(
-                isRefreshing = state.scanProgress.isScanning && state.scanProgress.isManual,
+                isRefreshing = isRefreshingState,
                 onRefresh = { 
-                    onRefresh()
+                    coroutineScope.launch {
+                        isManualRefreshing = true
+                        try {
+                            onRefresh()
+                            onTriggerScan()
+                        } finally {
+                            isManualRefreshing = false
+                        }
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             ) {
