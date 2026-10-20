@@ -36,15 +36,6 @@ fun CleanupIntelligenceDashboardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    if (uiState.isLocked) {
-        com.example.ui.components.AuraProLockScreen(
-            featureName = "Cleanup Intelligence",
-            onBack = onBack,
-            onUnlock = onUnlockPro
-        )
-        return
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(

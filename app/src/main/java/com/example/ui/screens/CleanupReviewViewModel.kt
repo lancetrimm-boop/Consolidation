@@ -86,11 +86,6 @@ class CleanupReviewViewModel(
     }
 
     fun loadRecommendations() {
-        if (!entitlementRepository.isFeatureAvailable(com.example.data.entitlement.ProFeature.CLEANUP_AUTOMATION)) {
-            _uiState.update { it.copy(isLocked = true, isLoading = false) }
-            return
-        }
-
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, isLocked = false) }
             try {
