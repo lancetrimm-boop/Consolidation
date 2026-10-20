@@ -709,6 +709,9 @@ object VideoPreviewPool {
     // Track listeners to avoid leaks during reuse
     private val playerListeners = mutableMapOf<ExoPlayer, Player.Listener>()
 
+    // Save playback position across orientation changes and view recycling
+    private val playbackPositions = mutableMapOf<String, Long>()
+
     @Synchronized
     fun acquirePlayer(
         context: Context, 
@@ -773,6 +776,10 @@ object VideoPreviewPool {
                 playerPriorities.remove(keyToEvict)
                 val evictedPlayer = activePlayers.remove(keyToEvict)
                 evictedPlayer?.apply {
+                    val evictedItemId = keyToEvict.substringBeforeLast("_")
+                    if (evictedItemId.isNotEmpty() && currentPosition > 0) {
+                        playbackPositions[evictedItemId] = currentPosition
+                    }
                     stop()
                     clearMediaItems()
                     idlePlayers.add(this)
@@ -808,6 +815,10 @@ object VideoPreviewPool {
                 repeatMode = Player.REPEAT_MODE_ONE // Looping preview
                 
                 prepare()
+                val savedPos = playbackPositions[itemId]
+                if (savedPos != null && savedPos > 0) {
+                    seekTo(savedPos)
+                }
                 // RESOURCE OPTIMIZATION: Only play if VISIBLE. NEARBY pre-warms but stays paused.
                 playWhenReady = (priority == PreviewPriority.VISIBLE)
             }
@@ -896,6 +907,10 @@ object VideoPreviewPool {
         val player = activePlayers.remove(poolKey)
         player?.apply {
             try {
+                val pos = currentPosition
+                if (pos > 0) {
+                    playbackPositions[itemId] = pos
+                }
                 stop()
                 clearMediaItems()
                 // AURA REPAIR: Only move to idle pool if under limit, else release to free decoders
