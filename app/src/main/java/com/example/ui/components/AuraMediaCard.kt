@@ -294,9 +294,6 @@ fun AuraMediaThumbnail(
     
     // AURA REPAIR: Identity-safe state to prevent recycled cards from showing stale thumbnails
     var thumbnailResult by remember(itemId, uriPath, imageUrl, convertedUri) { mutableStateOf<ThumbnailResult?>(null) }
-    
-    // AURA REPAIR: Track if video is actually rendering to prevent black frame gap
-    var isVideoRendering by remember(itemId, uriPath, imageUrl, convertedUri) { mutableStateOf(false) }
 
     LaunchedEffect(itemId, uriPath, imageUrl, convertedUri) {
         // Preference: Converted > Local uriPath > Remote imageUrl
@@ -428,25 +425,6 @@ fun AuraMediaThumbnail(
                     }
                 }
             }
-        }
-
-        // LAYER 2: Video Preview (Becomes visible only when first frame is rendered)
-        // AURA REPAIR: Allow VideoTilePreview to attempt playback even if thumbnail generation failed.
-        if (isVideo && result != null && result.itemId == itemId) {
-            VideoTilePreview(
-                itemId = itemId,
-                videoUri = convertedUri ?: uriPath,
-                imageUrl = imageUrl,
-                onFirstFrameRendered = { isVideoRendering = true },
-                locationTag = locationTag,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clipToBounds()
-                    .graphicsLayer { 
-                        // Cross-fade to video once it's actually ready
-                        alpha = if (isVideoRendering) 1f else 0f 
-                    }
-            )
         }
     }
 }
@@ -754,7 +732,7 @@ object VideoPreviewPool {
             existing?.apply {
                 // If reusing an existing player for the same key, update the listener to the new callback
                 playerListeners[this]?.let { removeListener(it) }
-                val listener = createListener(itemId, this, onFirstFrameRendered)
+                val listener = createListener(context, itemId, this, onFirstFrameRendered)
                 addListener(listener)
                 playerListeners[this] = listener
 
@@ -821,7 +799,7 @@ object VideoPreviewPool {
                 
                 // Replace listener safely
                 playerListeners[this]?.let { removeListener(it) }
-                val listener = createListener(itemId, this, onFirstFrameRendered)
+                val listener = createListener(context, itemId, this, onFirstFrameRendered)
                 addListener(listener)
                 playerListeners[this] = listener
                 
@@ -843,6 +821,7 @@ object VideoPreviewPool {
     }
 
     private fun createListener(
+        context: Context,
         itemId: String,
         player: ExoPlayer,
         onFirstFrameRendered: (() -> Unit)?
@@ -858,6 +837,18 @@ object VideoPreviewPool {
             override fun onRenderedFirstFrame() {
                 // AURA REPAIR: Trigger transition once the video is actually visible
                 onFirstFrameRendered?.invoke()
+            }
+
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    val w = videoSize.width
+                    val h = videoSize.height
+                    val rotation = videoSize.unappliedRotationDegrees
+                    val swap = com.example.util.MediaOrientationUtils.shouldSwapDimensions(rotation)
+                    val effectiveW = if (swap) h else w
+                    val effectiveH = if (swap) w else h
+                    com.example.data.MediaRepository.getInstance(context).updateItemDimensions(itemId, effectiveW, effectiveH)
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -1042,7 +1033,7 @@ fun VideoTilePreview(
                     )
                     this.player = player
                     useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     setEnableComposeSurfaceSyncWorkaround(true)
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     playerViewRef = this
@@ -1050,7 +1041,7 @@ fun VideoTilePreview(
             },
             update = { playerView ->
                 playerViewRef = playerView
-                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                 if (playerView.player != player) {
                     playerView.player = player
                 }
