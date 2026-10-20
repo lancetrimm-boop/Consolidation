@@ -13,8 +13,6 @@ import com.example.data.IntelligenceStats
 import com.example.data.CreatorProfile
 import com.example.data.ObsessionContentBatch
 import com.example.data.DiscoverSnapshot
-import com.example.data.TasteReveal
-import com.example.data.TasteRevealGenerator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -28,8 +26,7 @@ import kotlinx.coroutines.launch
 sealed class DiscoverFeedState {
     object Loading : DiscoverFeedState()
     data class Success(
-        val snapshot: DiscoverSnapshot,
-        val tasteReveal: TasteReveal? = null
+        val snapshot: DiscoverSnapshot
     ) : DiscoverFeedState()
     data class Error(val message: String) : DiscoverFeedState()
 }
@@ -56,8 +53,6 @@ class DiscoverViewModel(
 
     private val _detailState = MutableStateFlow<ObsessionDetailState>(ObsessionDetailState.Idle)
     val detailState: StateFlow<ObsessionDetailState> = _detailState.asStateFlow()
-
-    private var hasSeenTasteReveal = false
 
     private suspend fun getGatedItems(): List<MediaItem> = try {
         repository.candidateEligibleMediaItems.first()
@@ -134,29 +129,6 @@ class DiscoverViewModel(
         }
     }
 
-    fun markTasteRevealSeen() {
-        val current = _feedState.value
-        if (current is DiscoverFeedState.Success) {
-            hasSeenTasteReveal = true
-            _feedState.value = current.copy(tasteReveal = null)
-        }
-    }
-
-    fun triggerManualTasteReveal() {
-        viewModelScope.launch {
-            val items = getGatedItems()
-            val dna = repository.tasteDNA.first()
-            val profile = repository.preferenceProfile.first()
-            val stats = repository.intelligenceStats.first()
-            
-            val reveal = TasteRevealGenerator.generate(dna, stats, profile)
-            val current = _feedState.value
-            if (current is DiscoverFeedState.Success && reveal != null) {
-                _feedState.value = current.copy(tasteReveal = reveal)
-            }
-        }
-    }
-
     fun refresh(forceNewSession: Boolean = false) {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
@@ -189,13 +161,8 @@ class DiscoverViewModel(
                         repository, dna, profile, stats, creators, forceNewSession
                     )
                     repository.updateDiscoverSnapshot(snapshot)
-                    
-                    // Generate Taste Reveal only on major session starts
-                    val reveal = if (forceNewSession && !hasSeenTasteReveal) {
-                        TasteRevealGenerator.generate(dna, stats, profile)
-                    } else null
 
-                    _feedState.value = DiscoverFeedState.Success(snapshot, reveal)
+                    _feedState.value = DiscoverFeedState.Success(snapshot)
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e

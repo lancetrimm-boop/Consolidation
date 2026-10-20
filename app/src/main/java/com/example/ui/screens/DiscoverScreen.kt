@@ -111,7 +111,6 @@ fun DiscoverScreen(
         systemState = (feedState as? DiscoverFeedState.Success)?.snapshot?.systemState ?: SystemDiscoveryState(),
         isLoading = feedState is DiscoverFeedState.Loading,
         errorMessage = (feedState as? DiscoverFeedState.Error)?.message,
-        tasteReveal = (feedState as? DiscoverFeedState.Success)?.tasteReveal,
         tasteDNA = tasteDNA,
         preferenceProfile = preferenceProfile,
         discoveryPolicy = discoveryPolicy,
@@ -143,7 +142,6 @@ fun DiscoverScreen(
         onFavoriteToggle = { repository.addToFavorites(it) },
         onExpandObsession = { viewModel.expandCurrentObsession() },
         onTrySomethingNew = { viewModel.trySomethingNew() },
-        onMarkTasteRevealSeen = { viewModel.markTasteRevealSeen() },
         onUpdateDiscoveryPolicy = { repository.updateDiscoveryPolicy(it) },
         onUpdateTasteDNA = { updatedDna -> 
             repository.updateTasteDNA(updatedDna, isUserGenerated = true, evidenceCategory = "Discover Manual Tuning") 
@@ -177,7 +175,6 @@ fun DiscoverContent(
     onFavoriteToggle: (String) -> Unit,
     onExpandObsession: () -> Unit,
     onTrySomethingNew: () -> Unit,
-    onMarkTasteRevealSeen: () -> Unit,
     onUpdateDiscoveryPolicy: (DiscoveryPolicy) -> Unit,
     onUpdateTasteDNA: (TasteDNA) -> Unit,
     onUpdatePreferenceProfile: (TasteDNA.PreferenceProfile) -> Unit,
@@ -261,11 +258,6 @@ fun DiscoverContent(
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(text = state.errorMessage, color = Color.Red)
                             }
-                        } else if (state.tasteReveal != null) {
-                            TasteRevealScreen(
-                                reveal = state.tasteReveal,
-                                onConfirm = onMarkTasteRevealSeen
-                            )
                         } else if (state.obsessions.isEmpty()) {
                             EmptyDiscoverView(
                                 onScanAndImport = onScanAndImport

@@ -457,7 +457,16 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
     val latestDiscoverPresentation = combine(_discoverSnapshot, _databaseState, _aiState, latestDiscoverProvenance, _tasteDNA, _preferenceProfile, _discoveryPolicy) { args ->
         val snap = args[0] as DiscoverSnapshot?; val db = args[1] as DatabaseState; val ai = args[2] as AIState; val prov = args[3] as Map<String, DecisionProvenance>; val dna = args[4] as TasteDNA; val profile = args[5] as TasteDNA.PreferenceProfile; val policy = args[6] as DiscoveryPolicy
-        DiscoverPresentationState(snap?.obsessions ?: emptyList(), ConfidenceEngine.calculateDiscoveryState(candidateEligibleMediaItems.value, _intelligenceStats.value), ai == AIState.BOOTSTRAP, null, null, dna, profile, policy, prov)
+        DiscoverPresentationState(
+            obsessions = snap?.obsessions ?: emptyList(),
+            systemState = ConfidenceEngine.calculateDiscoveryState(candidateEligibleMediaItems.value, _intelligenceStats.value),
+            isLoading = ai == AIState.BOOTSTRAP,
+            errorMessage = null,
+            tasteDNA = dna,
+            preferenceProfile = profile,
+            discoveryPolicy = policy,
+            provenanceMap = prov
+        )
     }.stateIn(scope, SharingStarted.Eagerly, DiscoverPresentationState())
 
     fun initDatabase(context: Context) {

@@ -213,7 +213,6 @@ fun ConsumerMirrorScreen(
                         onFavoriteToggle = {},
                         onExpandObsession = {},
                         onTrySomethingNew = {},
-                        onMarkTasteRevealSeen = {},
                         onUpdateDiscoveryPolicy = {},
                         onUpdateTasteDNA = {},
                         onUpdatePreferenceProfile = {},

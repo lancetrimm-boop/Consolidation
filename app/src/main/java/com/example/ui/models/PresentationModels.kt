@@ -318,7 +318,6 @@ data class DiscoverPresentationState(
     val systemState: SystemDiscoveryState = SystemDiscoveryState(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val tasteReveal: TasteReveal? = null,
     val tasteDNA: TasteDNA = TasteDNA(),
     val preferenceProfile: TasteDNA.PreferenceProfile = TasteDNA.PreferenceProfile(),
     val discoveryPolicy: DiscoveryPolicy = DiscoveryPolicy(),
