@@ -42,8 +42,8 @@ class EntitlementRepository(
             try {
                 val pref = preferenceDao.getPreference(PREF_KEY_STATUS)
                 if (pref?.value == "PRO") {
-                    _proState.value = ProState.Pro(purchaseToken = "LIFETIME_PURCHASE", subscriptionType = SubscriptionType.LIFETIME)
-                    Log.i(TAG, "Local entitlement loaded: Valid Lifetime Pro restored.")
+                    _proState.value = ProState.Pro()
+                    Log.i(TAG, "Local entitlement loaded: Pro state restored.")
                 } else {
                     _proState.value = ProState.Free
                     Log.d(TAG, "Local entitlement loaded: Free tier enforced.")

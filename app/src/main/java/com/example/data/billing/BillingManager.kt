@@ -7,7 +7,6 @@ import android.net.Uri
 import android.util.Log
 import com.android.billingclient.api.*
 import com.example.data.entitlement.EntitlementRepository
-import com.example.data.entitlement.ProState
 import com.example.data.entitlement.SubscriptionType
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -158,13 +157,7 @@ class BillingManager(
             if (activeSubscription != null) {
                 acknowledgeIfNecessary(activeSubscription, matchedType)
             } else {
-                val current = entitlementRepository.proState.value
-                val isLifetime = current is ProState.Pro && current.subscriptionType == SubscriptionType.LIFETIME
-                if (!isLifetime) {
-                    entitlementRepository.updateEntitlement(false)
-                } else {
-                    Log.i(TAG, "Preserving existing verified lifetime Pro entitlement during subscription query.")
-                }
+                entitlementRepository.updateEntitlement(false)
             }
         }
     }

@@ -96,7 +96,12 @@ class BillingManagerTest {
 
         billingManager.queryActivePurchases()
 
-        verify(mockEntitlementRepo).updateEntitlement(eq(false))
+        verify(mockEntitlementRepo).updateEntitlement(
+            eq(false),
+            eq(null),
+            any(),
+            eq(0L)
+        )
     }
 
     @Test

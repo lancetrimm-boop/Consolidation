@@ -4,7 +4,7 @@ package com.example.data.entitlement
  * Type of subscription tier granting Pro access.
  */
 enum class SubscriptionType {
-    MONTHLY, ANNUAL, TRIAL, LIFETIME
+    MONTHLY, ANNUAL, TRIAL
 }
 
 /**
