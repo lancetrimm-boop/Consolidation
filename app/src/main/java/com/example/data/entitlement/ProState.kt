@@ -24,9 +24,9 @@ sealed class ProState {
     object Free : ProState()
 
     /**
-     * Confirmed Pro user with valid subscription or lifetime entitlement.
+     * Confirmed Pro user with valid subscription entitlement.
      * @param purchaseToken Optional token from Google Play for verification.
-     * @param subscriptionType Type of subscription (Monthly, Annual, Trial, Lifetime).
+     * @param subscriptionType Type of subscription (Monthly, Annual, Trial).
      * @param expiresAtMillis Expiration timestamp if applicable.
      */
     data class Pro(

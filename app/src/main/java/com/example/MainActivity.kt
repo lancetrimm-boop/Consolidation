@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -509,18 +510,22 @@ fun AuraMainContent(
     var showAuraMomentsSelection by remember { mutableStateOf(false) }
     var activeMomentsMode by remember { mutableStateOf<com.example.data.MomentsMode?>(null) }
 
-    val onUnlockPro: () -> Unit = {
+    val onUnlockProPlan: (com.example.data.entitlement.SubscriptionType) -> Unit = { plan ->
         (context as? Activity)?.let { activity ->
-            if (com.example.BuildConfig.ENABLE_DEVELOPER_TOOLS || repository.billingManager == null) {
+            val billing = repository.billingManager
+            if (billing != null && billing.isReady()) {
+                billing.launchSubscriptionPurchaseFlowForType(activity, plan)
+            } else if (com.example.BuildConfig.ENABLE_DEVELOPER_TOOLS) {
                 (activity as? androidx.activity.ComponentActivity)?.lifecycleScope?.launch {
-                    repository.entitlementRepository?.updateEntitlement(true)
+                    repository.entitlementRepository?.updateEntitlement(true, subscriptionType = plan)
                     cleanupReviewViewModel.loadRecommendations()
                 }
             } else {
-                repository.billingManager?.launchPurchaseFlow(activity)
+                Toast.makeText(context, "Billing service unavailable. Please check internet connection.", Toast.LENGTH_SHORT).show()
             }
         }
     }
+    val onUnlockPro: () -> Unit = { onUnlockProPlan(com.example.data.entitlement.SubscriptionType.ANNUAL) }
 
     if (showExitDialog) {
         AlertDialog(

@@ -210,18 +210,60 @@ class BillingManager(
         return billingProvider.launchBillingFlow(activity, billingFlowParams)
     }
 
+    fun isReady(): Boolean = billingProvider.isReady()
+
+    fun findBestOfferDetails(details: ProductDetails?): ProductDetails.SubscriptionOfferDetails? {
+        if (details == null) return null
+        val offerList = details.subscriptionOfferDetails ?: return null
+        val trialOffer = offerList.find { offer ->
+            offer.pricingPhases.pricingPhaseList.any { phase ->
+                phase.priceAmountMicros == 0L && (phase.billingPeriod == "P1W" || phase.billingPeriod == "P7D")
+            }
+        }
+        if (trialOffer != null) return trialOffer
+        val zeroPriceOffer = offerList.find { offer ->
+            offer.pricingPhases.pricingPhaseList.any { phase -> phase.priceAmountMicros == 0L }
+        }
+        if (zeroPriceOffer != null) return zeroPriceOffer
+        return offerList.firstOrNull()
+    }
+
+    fun hasEligibleSevenDayTrial(details: ProductDetails?): Boolean {
+        val offer = findBestOfferDetails(details) ?: return false
+        return offer.pricingPhases.pricingPhaseList.any { phase ->
+            phase.priceAmountMicros == 0L && (phase.billingPeriod == "P1W" || phase.billingPeriod == "P7D")
+        }
+    }
+
+    fun launchSubscriptionPurchaseFlowForType(
+        activity: Activity,
+        type: SubscriptionType
+    ): BillingResult? {
+        val details = when (type) {
+            SubscriptionType.MONTHLY -> _monthlyProductDetails.value
+            SubscriptionType.ANNUAL -> _annualProductDetails.value
+            else -> _monthlyProductDetails.value ?: _annualProductDetails.value
+        } ?: return null
+
+        val offerDetails = findBestOfferDetails(details)
+        val offerToken = offerDetails?.offerToken ?: details.subscriptionOfferDetails?.getOrNull(0)?.offerToken
+        if (offerToken == null) {
+            Log.w(TAG, "No valid offer token found for subscription product: ${details.productId}")
+            return null
+        }
+
+        return launchSubscriptionPurchaseFlow(activity, details, offerToken)
+    }
+
     fun launchPurchaseFlow(activity: Activity) {
-        // Default to monthly subscription if available
         val monthly = _monthlyProductDetails.value
-        if (monthly != null && monthly.subscriptionOfferDetails != null && monthly.subscriptionOfferDetails!!.isNotEmpty()) {
-            val offerToken = monthly.subscriptionOfferDetails!![0].offerToken
-            launchSubscriptionPurchaseFlow(activity, monthly, offerToken)
+        if (monthly != null) {
+            launchSubscriptionPurchaseFlowForType(activity, SubscriptionType.MONTHLY)
             return
         }
         val annual = _annualProductDetails.value
-        if (annual != null && annual.subscriptionOfferDetails != null && annual.subscriptionOfferDetails!!.isNotEmpty()) {
-            val offerToken = annual.subscriptionOfferDetails!![0].offerToken
-            launchSubscriptionPurchaseFlow(activity, annual, offerToken)
+        if (annual != null) {
+            launchSubscriptionPurchaseFlowForType(activity, SubscriptionType.ANNUAL)
             return
         }
         Log.w(TAG, "No subscription product details available to launch purchase flow.")

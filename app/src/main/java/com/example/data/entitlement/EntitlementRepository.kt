@@ -35,7 +35,7 @@ class EntitlementRepository(
 
     /**
      * Loads local entitlement state.
-     * Restores valid legacy lifetime Pro preferences without demoting to Free.
+     * Restores persisted Pro status without demoting to Free.
      */
     private fun loadLocalEntitlement() {
         scope.launch {

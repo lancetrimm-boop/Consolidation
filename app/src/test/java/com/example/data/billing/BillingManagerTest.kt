@@ -143,4 +143,14 @@ class BillingManagerTest {
 
         verify(mockProvider).queryPurchasesAsync(any(), any())
     }
+
+    @Test
+    fun `hasEligibleSevenDayTrial returns false for null ProductDetails`() = runTest(testDispatcher) {
+        org.junit.Assert.assertFalse(billingManager.hasEligibleSevenDayTrial(null))
+    }
+
+    @Test
+    fun `findBestOfferDetails returns null for null ProductDetails`() = runTest(testDispatcher) {
+        org.junit.Assert.assertNull(billingManager.findBestOfferDetails(null))
+    }
 }
