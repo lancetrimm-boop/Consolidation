@@ -5,6 +5,7 @@ import android.content.Context
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.room.withTransaction
 import androidx.core.content.ContextCompat
 import android.net.Uri
 import android.provider.MediaStore
@@ -2019,7 +2020,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
         refreshPairwiseCandidatePoolAndSelectNext(true)
     }
-    fun recordComparisonVote(chosenId: String) {
+    suspend fun recordComparisonVote(chosenId: String) {
         val currentPair = _pairwiseState.value
         Log.i("PAIRWISE_TRACE", "RECORD_COMPARISON_VOTE_START: chosenId=$chosenId optionA=${currentPair.optionA.id} optionB=${currentPair.optionB.id}")
         if (currentPair.optionA.id.isEmpty() || currentPair.optionB.id.isEmpty()) return
@@ -2027,16 +2028,46 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         val idA = currentPair.optionA.id
         val idB = currentPair.optionB.id
 
+        val ratingA = currentPair.optionA.eloRating
+        val ratingB = currentPair.optionB.eloRating
+        val actualA = if (chosenId == idA) 1.0 else 0.0
+        val actualB = 1.0 - actualA
+        val expectedA = PairwiseEloEngine.calculateExpectedScore(ratingA, ratingB)
+        val expectedB = PairwiseEloEngine.calculateExpectedScore(ratingB, ratingA)
+        val newRatingA = PairwiseEloEngine.calculateNewRating(ratingA, actualA, expectedA)
+        val newRatingB = PairwiseEloEngine.calculateNewRating(ratingB, actualB, expectedB)
+
         val db = database
         if (db != null) {
             try {
-                runBlocking(dispatcher) {
+                withContext(dispatcher) {
                     db.pairwiseDao().insertOutcome(PairwiseOutcomeEntity(optionAId = idA, optionBId = idB, chosenId = chosenId, roundNumber = currentPair.roundNumber))
+                    db.mediaDao().updateEloRating(idA, newRatingA)
+                    db.mediaDao().updateEloRating(idB, newRatingB)
                 }
             } catch (e: Exception) {
-                Log.e("MediaRepository", "Failed to persist pairwise comparison vote", e)
+                Log.e("MediaRepository", "Failed to persist pairwise comparison vote and Elo ratings", e)
                 return
             }
+        }
+
+        _mediaItems.update { list ->
+            list.map { item ->
+                when (item.id) {
+                    idA -> item.copy(eloRating = newRatingA)
+                    idB -> item.copy(eloRating = newRatingB)
+                    else -> item
+                }
+            }
+        }
+
+        _pairwiseState.update { st ->
+            if (st.optionA.id == idA && st.optionB.id == idB) {
+                st.copy(
+                    optionA = st.optionA.copy(eloRating = newRatingA),
+                    optionB = st.optionB.copy(eloRating = newRatingB)
+                )
+            } else st
         }
 
         val newRatedCount = _pairwiseBatchRatedCount.value + 1
@@ -2148,7 +2179,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         observersJob?.cancel()
     }
 
-    fun recordCompareSelectionVote(chosenId: String) = recordComparisonVote(chosenId)
+    suspend fun recordCompareSelectionVote(chosenId: String) = recordComparisonVote(chosenId)
     fun skipCompareSelectionPair() = skipComparison()
 
     fun searchByMultipleImages(items: List<MediaItem>) {

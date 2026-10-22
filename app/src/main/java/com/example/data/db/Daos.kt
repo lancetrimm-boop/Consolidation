@@ -48,6 +48,9 @@ interface MediaDao {
     @Query("UPDATE media_items SET enrichmentStatus = :status, lastEnrichmentAttemptTimestamp = :timestamp WHERE id = :id")
     suspend fun updateEnrichmentStatus(id: String, status: String, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE media_items SET eloRating = :eloRating WHERE id = :id")
+    suspend fun updateEloRating(id: String, eloRating: Double)
+
     /**
      * Increment failure count (up to 5) rather than immediately terminal-locking.
      * Transient frame decode / thumbnail / resource errors must be retryable.

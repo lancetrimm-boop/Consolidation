@@ -55,9 +55,11 @@ class CleanupIntelligenceViewModel(
                 proStateFlow
             ) { dbState, items, proState ->
                 Triple(dbState, items, proState)
-            }.collect { (dbState, _, _) ->
+            }.collect { (dbState, _, proState) ->
                 if (dbState != com.example.data.DatabaseState.READY) {
                     _uiState.update { it.copy(isLoading = true, isLocked = false) }
+                } else if (!proState.isPro) {
+                    _uiState.update { it.copy(isLoading = false, isLocked = true) }
                 } else {
                     refreshAnalysis()
                 }
@@ -67,6 +69,11 @@ class CleanupIntelligenceViewModel(
 
     fun refreshAnalysis() {
         viewModelScope.launch {
+            val isPro = entitlementRepository.proState.value.isPro
+            if (!isPro) {
+                _uiState.update { it.copy(isLoading = false, isLocked = true) }
+                return@launch
+            }
             _uiState.update { it.copy(isLoading = true, isLocked = false) }
             
             // 1. Fetch all media items

@@ -56,9 +56,11 @@ class CleanupReviewViewModel(
                 entitlementRepository.proState
             ) { dbState, _, _, proState ->
                 Pair(dbState, proState)
-            }.collect { (dbState, _) ->
+            }.collect { (dbState, proState) ->
                 if (dbState != com.example.data.DatabaseState.READY) {
                     _uiState.update { it.copy(isLoading = true, isLocked = false) }
+                } else if (!proState.isPro) {
+                    _uiState.update { it.copy(isLoading = false, isLocked = true) }
                 } else {
                     loadRecommendations()
                 }
@@ -88,6 +90,11 @@ class CleanupReviewViewModel(
 
     fun loadRecommendations() {
         viewModelScope.launch {
+            val isPro = entitlementRepository.proState.value.isPro
+            if (!isPro) {
+                _uiState.update { it.copy(isLoading = false, isLocked = true) }
+                return@launch
+            }
             _uiState.update { it.copy(isLoading = true, isLocked = false) }
             try {
                 val ineligibleEntries = diagnosticMediaStore.ineligibleItems.value

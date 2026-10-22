@@ -5,6 +5,7 @@ import com.example.data.MediaRepository
 import com.example.data.entitlement.EntitlementRepository
 import com.example.data.entitlement.ProFeature
 import com.example.data.cleanup.CleanupCategory
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
@@ -35,6 +36,7 @@ class CleanupIntelligenceViewModelTest {
         
         // Default to Pro so existing tests pass
         whenever(entitlementRepository.isFeatureAvailable(ProFeature.CLEANUP_AUTOMATION)).thenReturn(true)
+        whenever(entitlementRepository.proState).thenReturn(MutableStateFlow(com.example.data.entitlement.ProState.Pro()))
         
         // Mock media items
         val items = listOf(
@@ -69,6 +71,7 @@ class CleanupIntelligenceViewModelTest {
     fun testViewModel_NonPro_LockedState() = runTest {
         // Given a non-pro user
         whenever(entitlementRepository.isFeatureAvailable(ProFeature.CLEANUP_AUTOMATION)).thenReturn(false)
+        whenever(entitlementRepository.proState).thenReturn(MutableStateFlow(com.example.data.entitlement.ProState.Free))
         
         // When analysis is refreshed
         viewModel.refreshAnalysis()
