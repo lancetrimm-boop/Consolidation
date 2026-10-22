@@ -19,7 +19,7 @@ android {
     applicationId = "com.aistudio.auramediaplayer.v3.ppqtdt"
     minSdk = 24
     targetSdk = 36
-    versionCode = 8
+    versionCode = 9
     versionName = "1.2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -31,7 +31,7 @@ android {
     // Ensures compatibility with Android 15/16 high-performance devices.
     packaging {
       jniLibs {
-        useLegacyPackaging = true
+        useLegacyPackaging = false
       }
     }
   }

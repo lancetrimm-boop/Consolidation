@@ -1750,6 +1750,19 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     list.map { item -> map[item.id]?.toMediaItem() ?: item }
                 }
                 database?.mediaDao()?.updateAll(updatedBatch)
+
+                // Progressive / Interleaved Visual Indexing
+                val playableItems = updatedBatch.filter { it.compatibilityStatus == "PLAYABLE" && !it.isDeleted }
+                if (playableItems.isNotEmpty()) {
+                    withContext(Dispatchers.IO) {
+                        try {
+                            processSemanticsForBatch(playableItems)
+                        } catch (e: Exception) {
+                            if (e is CancellationException) throw e
+                            Log.w("MediaRepository", "Interleaved semantic indexing error: ${e.message}")
+                        }
+                    }
+                }
             }
 
             presentationMediaStore.updateProgress(
