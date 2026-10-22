@@ -1580,15 +1580,24 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             }
             return true
         } catch (e: Exception) {
+            if (e is CancellationException) {
+                _scanProgress.value = ScanProgressState(
+                    scanSessionId = scanId,
+                    isScanning = false,
+                    isComplete = false,
+                    isManual = isManual,
+                    statusText = "Scan cancelled"
+                )
+                throw e
+            }
             _scanProgress.value = ScanProgressState(
                 scanSessionId = scanId,
                 isScanning = false,
                 isComplete = false,
                 isManual = isManual,
-                statusText = if (e is CancellationException) "Scan cancelled" else "Scan failed",
-                errorCode = if (e is CancellationException) null else ScanError.UNKNOWN_ERROR
+                statusText = "Scan failed",
+                errorCode = ScanError.UNKNOWN_ERROR
             )
-            if (e is CancellationException) throw e
             return false
         } finally {
             if (_scanProgress.value.scanSessionId == scanId && _scanProgress.value.isScanning) {
@@ -1751,10 +1760,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 }
                 database?.mediaDao()?.updateAll(updatedBatch)
 
-                // Progressive / Interleaved Visual Indexing
+                // Progressive / Interleaved Visual Indexing (non-blocking)
                 val playableItems = updatedBatch.filter { it.compatibilityStatus == "PLAYABLE" && !it.isDeleted }
                 if (playableItems.isNotEmpty()) {
-                    withContext(Dispatchers.IO) {
+                    scope.launch(dispatcher) {
                         try {
                             processSemanticsForBatch(playableItems)
                         } catch (e: Exception) {
@@ -1811,7 +1820,28 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         } 
     }
     private suspend fun backfillSemantics() { database?.mediaDao()?.getAllMediaSync()?.filter { it.compatibilityStatus == "PLAYABLE" && !it.isDeleted }?.let { processSemanticsForBatch(it) } }
-    private suspend fun processSemanticsForBatch(entities: List<MediaEntity>) { val sIdx = semanticIndexingService ?: return; val vIdx = visualIndexingService; val ctx = applicationContext ?: return; entities.forEach { entity -> try { val item = entity.toMediaItem(); sIdx.indexMediaItem(item); vIdx?.indexVisual(ctx, item) } catch (e: Exception) { if (e is CancellationException) throw e } } }
+    private suspend fun processSemanticsForBatch(entities: List<MediaEntity>) {
+        val sIdx = semanticIndexingService
+        val vIdx = visualIndexingService
+        val ctx = applicationContext
+        if (sIdx == null || vIdx == null || ctx == null) {
+            Log.d("MediaRepository", "processSemanticsForBatch: Services not fully initialized yet. Scheduling via AuraEnrichmentWorker.")
+            try {
+                applicationContext?.let { AuraEnrichmentWorker.schedule(it) }
+            } catch (_: Exception) {}
+            return
+        }
+        entities.forEach { entity ->
+            try {
+                val item = entity.toMediaItem()
+                sIdx.indexMediaItem(item)
+                vIdx.indexVisual(ctx, item)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.w("MediaRepository", "Error indexing entity ${entity.id}: ${e.message}")
+            }
+        }
+    }
     private suspend fun deleteSemanticDataForMedia(id: String) { semanticRepresentationRepository?.deleteForMedia(id) }
     
     private fun MediaItem.toEntity(): MediaEntity = MediaEntity(id = id, title = title, mediaType = mediaType, year = year, duration = duration, genre = genre, imageUrl = imageUrl, gradientColorsJson = gradientColors.joinToString(","), rating = rating, isFavorite = isFavorite, progress = progress, progressText = progressText, category = category, aiSummary = aiSummary, moodTagsJson = moodTags.joinToString(","), itemCount = itemCount, eloRating = eloRating, uriPath = uriPath, dateAdded = dateAdded, dateModified = dateModified, sizeBytes = sizeBytes, durationMs = durationMs, width = width, height = height, lastViewedTimestamp = lastViewedTimestamp, playCount = viewCount, exposureCount = exposureCount, lastExposedTimestamp = lastExposedTimestamp, contentHash = contentHash, parentContentId = parentContentId, isDeleted = isDeleted, compatibilityStatus = compatibilityStatus.name, containerFormat = containerFormat, videoCodec = videoCodec, audioCodec = audioCodec, compatibilityReason = compatibilityReason, conversionStatus = conversionStatus.name, convertedUri = convertedUri ?: "", lastCompatibilityCheckTimestamp = lastCompatibilityCheckTimestamp, selectionReason = if (isEphemeralReason(selectionReason)) null else selectionReason, creatorId = creatorId, creatorName = creatorName, sourcePlatform = sourcePlatform, replacedByMediaId = replacedByMediaId)
