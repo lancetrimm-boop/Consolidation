@@ -561,6 +561,15 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         observersJob = scope.launch {
             launch {
                 try {
+                    db.mediaDao().recoverStuckEnrichment()
+                    val vCount = db.semanticRepresentationDao().countVerifiedVisual()
+                    if (vCount == 0) {
+                        applicationContext?.let { AuraEnrichmentWorker.schedule(it) }
+                    }
+                } catch (_: Exception) {}
+            }
+            launch {
+                try {
                     db.mediaDao().getAllMedia().conflate().transform { emit(it); if (_scanProgress.value.isScanning) delay(3000) }.collect { entities ->
                         val items = entities.map { it.toMediaItem() }.filter {
                             !it.isDeleted && it.compatibilityStatus !in listOf(
@@ -2298,8 +2307,9 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
 
                         val st = when {
                             totalEligible == 0 -> VisualIndexState.NEUTRAL_EMPTY
-                            !isProviderReady -> VisualIndexState.RED_INCOMPLETE
-                            verifiedCount == 0 && (failedCount > 0 || terminalFailedCount > 0) -> VisualIndexState.RED_INCOMPLETE
+                            !isProviderReady -> VisualIndexState.YELLOW_INDEXING
+                            verifiedCount == 0 && (pendingCount > 0 || !isProviderReady) -> VisualIndexState.YELLOW_INDEXING
+                            verifiedCount == 0 && (failedCount > 0 || terminalFailedCount > 0) && pendingCount == 0 && isProviderReady -> VisualIndexState.RED_INCOMPLETE
                             isCompleteWithFailures || (verifiedCount >= totalEligible && totalEligible > 0 && pendingCount == 0) -> VisualIndexState.GREEN_READY
                             else -> VisualIndexState.YELLOW_INDEXING
                         }
@@ -2313,17 +2323,20 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                                 }
                             }
                             VisualIndexState.YELLOW_INDEXING -> {
-                                val pctFloat = if (totalEligible > 0) (verifiedCount * 100.0f) / totalEligible else 0f
-                                val pctString = if (verifiedCount > 0 && pctFloat < 1.0f) {
-                                    String.format(java.util.Locale.US, "%.1f%%", pctFloat)
+                                if (!isProviderReady) {
+                                    "Visual Index Engine Loading..."
                                 } else {
-                                    "${pctFloat.toInt()}%"
+                                    val pctFloat = if (totalEligible > 0) (verifiedCount * 100.0f) / totalEligible else 0f
+                                    val pctString = if (verifiedCount > 0 && pctFloat < 1.0f) {
+                                        String.format(java.util.Locale.US, "%.1f%%", pctFloat)
+                                    } else {
+                                        "${pctFloat.toInt()}%"
+                                    }
+                                    "Preparing Visual Search: $verifiedCount / $totalEligible ($pctString)"
                                 }
-                                "Preparing Visual Search: $verifiedCount / $totalEligible ($pctString)"
                             }
                             VisualIndexState.RED_INCOMPLETE -> {
-                                if (!isProviderReady) "Visual Index Engine Loading..."
-                                else "Visual Index Incomplete ($failedCount Failed) — Tap to Retry"
+                                "Visual Index Incomplete ($failedCount Failed) — Tap to Retry"
                             }
                             VisualIndexState.NEUTRAL_EMPTY -> "No Eligible Media"
                         }
