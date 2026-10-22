@@ -130,4 +130,19 @@ class MediaStoreScanLifecycleTest {
         assertNotNull(database.mediaDao().getMediaById("local_vid_1"))
         assertEquals(1, database.mediaDao().getCount())
     }
+
+    @Test
+    fun `test scan progress remains active during background enrichment and completes successfully`() = runTest(testDispatcher) {
+        database.mediaDao().insert(MediaEntity(id = "local_vid_1", title = "V1", mediaType = "VIDEO", uriPath = "content://media/external/video/media/1", compatibilityStatus = "ANALYSIS_PENDING"))
+        
+        val job = launch {
+            repository.scanLocalMedia(context)
+        }
+        runCurrent()
+        
+        job.join()
+        val progress = repository.scanProgress.value
+        assertTrue("Scan should be complete after enrichment finishes", progress.isComplete)
+        assertFalse("Scan should not be scanning after completion", progress.isScanning)
+    }
 }

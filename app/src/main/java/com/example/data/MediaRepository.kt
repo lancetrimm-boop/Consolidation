@@ -1516,7 +1516,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
     }
 
-    suspend fun scanLocalMedia(context: Context, isManual: Boolean = false): Boolean = scanLocalMediaInternal(context, isManual)
+    private var activeScanJob: Job? = null
+
+    suspend fun scanLocalMedia(context: Context, isManual: Boolean = false): Boolean {
+        return coroutineScope {
+            activeScanJob = coroutineContext[Job]
+            scanLocalMediaInternal(context, isManual)
+        }
+    }
     
     private suspend fun scanLocalMediaInternal(context: Context, isManual: Boolean = false): Boolean {
         val scanId = System.currentTimeMillis()
@@ -1538,18 +1545,30 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 database?.mediaDao()?.insertOrIgnorePreservingAnalysis(res.entities)
                 _isLibraryReady.value = true
                 
-                // Complete scan progress immediately so newly discovered media appears instantly in UI
+                // Keep scanProgress active during background compatibility enrichment
                 _scanProgress.value = ScanProgressState(
                     scanSessionId = scanId,
-                    isScanning = false,
-                    isComplete = true,
+                    isScanning = true,
+                    isComplete = false,
                     isManual = isManual,
                     discoveredCount = res.entities.size
                 )
                 
                 // Perform background intelligence/visual enrichment asynchronously (Discover -> Persist -> Display -> Enrich)
                 scope.launch(dispatcher) {
-                    processPendingMedia(context, scanId, res.scannedVolumes, isManual)
+                    try {
+                        processPendingMedia(context, scanId, res.scannedVolumes, isManual)
+                    } finally {
+                        if (_scanProgress.value.scanSessionId == scanId && _scanProgress.value.isScanning) {
+                            _scanProgress.value = ScanProgressState(
+                                scanSessionId = scanId,
+                                isScanning = false,
+                                isComplete = true,
+                                isManual = isManual,
+                                discoveredCount = res.entities.size
+                            )
+                        }
+                    }
                 }
             } else {
                 _scanProgress.value = ScanProgressState(
@@ -1566,7 +1585,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 isScanning = false,
                 isComplete = false,
                 isManual = isManual,
-                errorCode = ScanError.UNKNOWN_ERROR
+                statusText = if (e is CancellationException) "Scan cancelled" else "Scan failed",
+                errorCode = if (e is CancellationException) null else ScanError.UNKNOWN_ERROR
             )
             if (e is CancellationException) throw e
             return false
@@ -1734,6 +1754,15 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
 
         presentationMediaStore.markAnalysisComplete()
+        if (_scanProgress.value.scanSessionId == scanId) {
+            _scanProgress.value = ScanProgressState(
+                scanSessionId = scanId,
+                isScanning = false,
+                isComplete = true,
+                isManual = isManual,
+                discoveredCount = totalCount
+            )
+        }
         backfillSemantics()
     }
     internal suspend fun reconcileExistingMedia(context: Context) { 
@@ -2150,7 +2179,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         Log.d("AURA_SCAN_RUNTIME", "[REPO] reconcileDeletions summary: Purged ${toDelete.size} items. Preserved $skippedCount items outside verified scope. Total DB items: ${db.mediaDao().getCount()}")
         return true
     }
-    fun cancelScan() { /* Logic */ }
+    fun cancelScan() {
+        activeScanJob?.cancel()
+        _scanProgress.value = _scanProgress.value.copy(
+            isScanning = false,
+            isComplete = false,
+            statusText = "Scan cancelled"
+        )
+    }
 
     fun recordCleanupSignal(mediaId: String, category: String, score: Float, isDelete: Boolean, reason: String? = null) { /* Logic */ }
     fun reportDiscoverProvenance(prov: Map<String, DecisionProvenance>) { _latestDiscoverProvenance.value = prov }
