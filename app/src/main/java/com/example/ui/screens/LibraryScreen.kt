@@ -332,33 +332,36 @@ fun LibraryContent(
         derivedStateOf { gridState.firstVisibleItemIndex > 8 }
     }
 
-    // AURA STABILITY FIX: UI-side list stability to prevent items from jumping while viewing.
-    // Preserves visible item sequence during in-place state changes (e.g. favoriting/liking).
-    // Thaws and updates order when the item set changes (import, delete, paging) or on explicit sort/filter changes.
+    // AURA STABILITY FIX: Active Session Viewport Snapshot Management
+    // Keeps list order frozen while user is on LibraryScreen during background scanning & admission.
+    var userRefreshTrigger by remember { mutableIntStateOf(0) }
+    var snapshotAdmittedCount by remember { mutableIntStateOf(0) }
     var stableItems by remember { mutableStateOf<List<LibraryItemUi>>(emptyList()) }
 
-    LaunchedEffect(latestSortedItems) {
-        val currentIds = latestSortedItems.map { it.id }
-        val stableIds = stableItems.map { it.id }
+    val currentAdmittedCount = state.admissionProgress.totalAdmitted
 
-        val isSameSetOfItems = stableItems.isNotEmpty() &&
-            currentIds.size == stableIds.size &&
-            currentIds.toSet() == stableIds.toSet()
-
-        if (!isSameSetOfItems) {
-            stableItems = latestSortedItems
-        }
+    // Capture/Thaw snapshot ONLY on initial load or explicit user triggers
+    LaunchedEffect(state.activeCategory, state.intelligentSort, state.standardSort, state.selectedFilter, state.searchRequest, userRefreshTrigger) {
+        stableItems = latestSortedItems
+        snapshotAdmittedCount = currentAdmittedCount
     }
 
-    LaunchedEffect(state.activeCategory, state.intelligentSort, state.selectedFilter, state.searchRequest) {
-        // Sort/Filter/Search change acts as an explicit "thaw" signal
-        stableItems = latestSortedItems
+    // Initialize stableItems on initial load if empty
+    LaunchedEffect(latestSortedItems) {
+        if (stableItems.isEmpty() && latestSortedItems.isNotEmpty()) {
+            stableItems = latestSortedItems
+            snapshotAdmittedCount = currentAdmittedCount
+        }
     }
 
     // Filter out deleted items from the stable snapshot to ensure they disappear immediately
     val displayItems = remember(stableItems, mediaItemsMap) {
         stableItems.filter { mediaItemsMap.containsKey(it.id) }
     }
+
+    val newItemsAdmittedCount = if (snapshotAdmittedCount > 0 && currentAdmittedCount > snapshotAdmittedCount) {
+        currentAdmittedCount - snapshotAdmittedCount
+    } else 0
 
     LaunchedEffect(gridState, displayItems) {
         snapshotFlow { 
@@ -632,6 +635,39 @@ fun LibraryContent(
 
             if (!state.admissionProgress.isAnalysisComplete) {
                 com.example.ui.components.AdmissionProgressBanner(progress = state.admissionProgress)
+            }
+
+            if (newItemsAdmittedCount > 0) {
+                Surface(
+                    onClick = {
+                        userRefreshTrigger++
+                        onRefresh()
+                    },
+                    shape = CircleShape,
+                    color = DiscoveryViolet,
+                    modifier = Modifier
+                        .padding(vertical = 6.dp)
+                        .align(Alignment.CenterHorizontally)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "$newItemsAdmittedCount new items admitted — Tap to refresh",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
 
             val isRefreshingState = (state.scanProgress.isScanning && state.scanProgress.isManual) || isManualRefreshing
