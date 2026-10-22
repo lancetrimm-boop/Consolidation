@@ -1777,7 +1777,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 database?.mediaDao()?.updateAll(updatedBatch)
 
                 // Progressive / Interleaved Visual Indexing (non-blocking)
-                val playableItems = updatedBatch.filter { it.compatibilityStatus == "PLAYABLE" && !it.isDeleted }
+                val playableItems = updatedBatch.filter { !it.isDeleted && (it.compatibilityStatus == "PLAYABLE" || it.compatibilityStatus == "PLAYABLE_SOFTWARE_DECODE") }
                 if (playableItems.isNotEmpty()) {
                     scope.launch(dispatcher) {
                         try {
@@ -1835,7 +1835,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             } 
         } 
     }
-    private suspend fun backfillSemantics() { database?.mediaDao()?.getAllMediaSync()?.filter { it.compatibilityStatus == "PLAYABLE" && !it.isDeleted }?.let { processSemanticsForBatch(it) } }
+    private suspend fun backfillSemantics() { database?.mediaDao()?.getAllMediaSync()?.filter { !it.isDeleted && (it.compatibilityStatus == "PLAYABLE" || it.compatibilityStatus == "PLAYABLE_SOFTWARE_DECODE") }?.let { processSemanticsForBatch(it) } }
     private suspend fun processSemanticsForBatch(entities: List<MediaEntity>) {
         val sIdx = semanticIndexingService
         val vIdx = visualIndexingService
@@ -1902,18 +1902,45 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         _librarySearchRequest.value = SearchRequest.Text("") 
     }
     fun searchByImage(bitmap: android.graphics.Bitmap, uri: String? = null) {
+        val previousJob = activeVisualSearchJob
         val scaled = if (bitmap.width > 512 || bitmap.height > 512) android.graphics.Bitmap.createScaledBitmap(bitmap, 512, 512, true) else bitmap
-        scope.launch(Dispatchers.Default) {
+
+        activeVisualSearchJob = scope.launch(dispatcher) {
+            previousJob?.cancel()
             _isForegroundVisualQueryActive.value = true
             try {
-                if (_aiState.value != AIState.READY) {
+                if (_aiState.value != AIState.READY && mobileCLIPProvider == null) {
                     _aiState.first { it == AIState.READY || it == AIState.ERROR }
                 }
                 val provider = mobileCLIPProvider
                 if (provider != null) {
-                    val result = provider.generateEmbedding("query_${UUID.randomUUID()}", SemanticInput.ExplicitBitmap(scaled), "query_image")
+                    val queryId = uri ?: "query_${UUID.randomUUID()}"
+                    val result = provider.generateEmbedding(queryId, SemanticInput.ExplicitBitmap(scaled), "query_image")
                     if (result is EmbeddingResult.Success) {
-                        _librarySearchRequest.value = SearchRequest.Visual(result.representation.vector, uri)
+                        val rep = result.representation
+                        semanticRepresentationRepository?.saveRepresentation(rep)
+                        val refItem = MediaItem(
+                            id = rep.mediaId,
+                            title = uri ?: "Visual Query",
+                            mediaType = "PHOTO",
+                            imageUrl = uri ?: "",
+                            uriPath = uri ?: ""
+                        )
+                        val currentRefs = (_activeVisualReferences.value + refItem).distinctBy { it.id }
+                        _activeVisualReferences.value = currentRefs
+
+                        val currentQuery = librarySearchQuery
+                        val uris = currentRefs.map { it.uriPath }
+                        if (currentQuery.isNotBlank() && currentRefs.size == 1) {
+                            _librarySearchRequest.value = SearchRequest.Compound(currentQuery, rep.vector, uri)
+                        } else if (currentRefs.size > 1) {
+                            val vectors = currentRefs.mapNotNull { ref ->
+                                semanticRepresentationRepository?.getSpecificRepresentation(ref.id, SemanticRepresentationType.VISUAL, provider.descriptor)?.vector
+                            }
+                            _librarySearchRequest.value = SearchRequest.MultiVisual(vectors, uris, currentQuery.ifBlank { null })
+                        } else {
+                            _librarySearchRequest.value = SearchRequest.Visual(rep.vector, uri)
+                        }
                     }
                 } else {
                     Log.w("MediaRepository", "searchByImage: mobileCLIPProvider is null after AI initialization")
