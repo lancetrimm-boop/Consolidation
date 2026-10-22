@@ -1426,16 +1426,16 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         if (sortCategory == SortCategory.STANDARD) {
             val filtered = inputItems.filter { matchesFilterType(it, filterType) && isItemVisibleInLibrary(it) }
             return when (standardSort) {
-                StandardSortOption.TITLE_ASC -> filtered.sortedBy { it.title }
-                StandardSortOption.TITLE_DESC -> filtered.sortedByDescending { it.title }
-                StandardSortOption.NEWEST_FIRST -> filtered.sortedByDescending { it.dateAdded }
-                StandardSortOption.SHORTEST_DURATION -> filtered.sortedBy { it.durationMs }
-                StandardSortOption.LONGEST_DURATION -> filtered.sortedByDescending { it.durationMs }
-                StandardSortOption.MOST_PLAYED -> filtered.sortedByDescending { it.viewCount }
-                StandardSortOption.LEAST_PLAYED -> filtered.sortedBy { it.viewCount }
-                StandardSortOption.SIZE -> filtered.sortedByDescending { it.sizeBytes }
-                StandardSortOption.RATING -> filtered.sortedByDescending { it.rating }
-                StandardSortOption.RECENTLY_PLAYED -> filtered.sortedByDescending { it.lastViewedTimestamp ?: 0L }
+                StandardSortOption.TITLE_ASC -> filtered.sortedWith(compareBy<MediaItem> { it.title }.thenBy { it.id })
+                StandardSortOption.TITLE_DESC -> filtered.sortedWith(compareByDescending<MediaItem> { it.title }.thenBy { it.id })
+                StandardSortOption.NEWEST_FIRST -> filtered.sortedWith(compareByDescending<MediaItem> { it.dateAdded }.thenBy { it.id })
+                StandardSortOption.SHORTEST_DURATION -> filtered.sortedWith(compareBy<MediaItem> { it.durationMs }.thenBy { it.id })
+                StandardSortOption.LONGEST_DURATION -> filtered.sortedWith(compareByDescending<MediaItem> { it.durationMs }.thenBy { it.id })
+                StandardSortOption.MOST_PLAYED -> filtered.sortedWith(compareByDescending<MediaItem> { it.viewCount }.thenBy { it.id })
+                StandardSortOption.LEAST_PLAYED -> filtered.sortedWith(compareBy<MediaItem> { it.viewCount }.thenBy { it.id })
+                StandardSortOption.SIZE -> filtered.sortedWith(compareByDescending<MediaItem> { it.sizeBytes }.thenBy { it.id })
+                StandardSortOption.RATING -> filtered.sortedWith(compareByDescending<MediaItem> { it.rating }.thenBy { it.id })
+                StandardSortOption.RECENTLY_PLAYED -> filtered.sortedWith(compareByDescending<MediaItem> { it.lastViewedTimestamp ?: 0L }.thenBy { it.id })
                 StandardSortOption.RANDOM -> filtered.shuffled(java.util.Random(sessionSeed))
             }
         }
@@ -1715,6 +1715,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             val batch = database?.mediaDao()?.getPendingAnalysisBatch(50) ?: emptyList()
             if (batch.isEmpty()) break
 
+            val updatedBatch = mutableListOf<MediaEntity>()
             batch.forEach { entity ->
                 try {
                     val report = AuraMediaCompatibilityEngine.analyzeMedia(context, entity.uriPath, entity.mediaType) 
@@ -1732,24 +1733,30 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                         convertedUri = report.convertedUri ?: "",
                         lastCompatibilityCheckTimestamp = System.currentTimeMillis()
                     )
-                    updateMediaItemsState { list ->
-                        list.map { if (it.id == entity.id) updatedEntity.toMediaItem() else it }
-                    }
-                    database?.mediaDao()?.update(updatedEntity)
+                    updatedBatch.add(updatedEntity)
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     Log.e("MediaRepository", "Error processing pending media item ${entity.id}", e)
                     try {
                         val failedEntity = entity.copy(compatibilityStatus = "CORRUPT", compatibilityReason = e.message ?: "Analysis error")
-                        database?.mediaDao()?.update(failedEntity)
+                        updatedBatch.add(failedEntity)
                     } catch (_: Exception) {}
                 }
-                presentationMediaStore.updateProgress(
-                    totalScanned = totalCount,
-                    totalAdmitted = visibleMediaItems.value.size,
-                    isAnalysisComplete = false
-                )
             }
+
+            if (updatedBatch.isNotEmpty()) {
+                updateMediaItemsState { list ->
+                    val map = updatedBatch.associateBy { it.id }
+                    list.map { item -> map[item.id]?.toMediaItem() ?: item }
+                }
+                database?.mediaDao()?.updateAll(updatedBatch)
+            }
+
+            presentationMediaStore.updateProgress(
+                totalScanned = totalCount,
+                totalAdmitted = visibleMediaItems.value.size,
+                isAnalysisComplete = false
+            )
             kotlinx.coroutines.yield()
         }
 
