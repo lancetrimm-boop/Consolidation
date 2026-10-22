@@ -39,6 +39,8 @@ interface MediaDao {
         AND enrichmentStatus IN ('PENDING', 'FAILED_RETRYABLE', 'TEXT_ONLY', 'VISUAL_ONLY')
         AND enrichmentFailureCount < 5
         ORDER BY
+            CASE WHEN lastEnrichmentAttemptTimestamp IS NULL THEN 0 ELSE 1 END ASC,
+            lastEnrichmentAttemptTimestamp ASC,
             CASE WHEN dateModified > 0 THEN dateModified ELSE dateAdded END DESC,
             id ASC
         LIMIT :limit

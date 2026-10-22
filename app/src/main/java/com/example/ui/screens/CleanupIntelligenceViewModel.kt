@@ -79,6 +79,10 @@ class CleanupIntelligenceViewModel(
             // 1. Fetch all media items
             val allItems = repository.mediaItems.value
             if (allItems.isEmpty()) {
+                if (repository.databaseState.value != com.example.data.DatabaseState.READY) {
+                    _uiState.update { it.copy(isLoading = true) }
+                    return@launch
+                }
                 _uiState.update { it.copy(isLoading = false) }
                 return@launch
             }

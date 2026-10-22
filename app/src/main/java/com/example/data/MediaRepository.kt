@@ -1470,7 +1470,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         
         if (response?.isSuccess == true) {
             _signatureStyleProfile.value = SignatureStyleProvider.calculateStyleProfile(tasteDNA, inputItems)
-            return response.candidates.map { it.item }
+            return response.candidates.map { it.item }.filter { matchesFilterType(it, filterType) && isItemVisibleInLibrary(it) }
         }
 
         val filtered = inputItems.filter { matchesFilterType(it, filterType) && isItemVisibleInLibrary(it) }
@@ -1495,7 +1495,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
     }
 
-    private fun matchesFilterType(item: MediaItem, filterType: String): Boolean = when (filterType.uppercase()) { "PHOTO" -> item.mediaType.uppercase() in listOf("PHOTO", "IMAGE"); "VIDEO" -> item.mediaType.uppercase() in listOf("VIDEO", "MOVIE"); else -> true }
+    private fun matchesFilterType(item: MediaItem, filterType: String): Boolean {
+        val isVideo = item.mediaType.equals("VIDEO", ignoreCase = true) || item.mediaType.equals("MOVIE", ignoreCase = true) || item.mediaType.startsWith("VIDEO", ignoreCase = true) || item.mediaType.startsWith("MOVIE", ignoreCase = true)
+        return when (filterType.uppercase()) {
+            "PHOTO", "PHOTOS", "IMAGE", "IMAGES" -> !isVideo
+            "VIDEO", "VIDEOS", "MOVIE", "MOVIES" -> isVideo
+            else -> true
+        }
+    }
 
     fun getEffectiveCompatibilityStatus(item: MediaItem): CompatibilityStatus {
         if (item.isDeleted) return CompatibilityStatus.DELETED
@@ -1872,11 +1879,13 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     suspend fun getSimilarMedia(item: MediaItem, requestId: String = "NONE"): IntelligenceResponse {
         _isForegroundVisualQueryActive.value = true
         return try {
+            val isVideo = item.mediaType.equals("VIDEO", ignoreCase = true) || item.mediaType.equals("MOVIE", ignoreCase = true) || item.mediaType.startsWith("VIDEO", ignoreCase = true) || item.mediaType.startsWith("MOVIE", ignoreCase = true)
+            val effectiveFilter = if (isVideo) "VIDEO" else "PHOTO"
             val req = IntelligenceRequest(
                 mode = IntelligenceMode.SIMILAR,
                 referenceItemId = item.id,
                 requestId = requestId,
-                filterType = "ALL",
+                filterType = effectiveFilter,
                 limit = 25
             )
             intelligenceCore?.processRequest(req) ?: IntelligenceResponse(

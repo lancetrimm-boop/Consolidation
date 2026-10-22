@@ -121,12 +121,15 @@ class AuraEnrichmentWorker(
         val remainingBatch = mediaDao.getNextEnrichmentBatch(1)
         val hasPendingItems = remainingBatch.isNotEmpty() || (metrics != null && (metrics.totalEligible > metrics.completeCount))
 
-        if (!isStopped && (totalProgressMade > 0 || remainingBatch.isNotEmpty())) {
+        if (!isStopped && totalProgressMade > 0) {
             schedule(applicationContext)
             return@withContext Result.success()
         } else if (!isStopped && hasPendingItems && !hasVisualReady) {
             Log.i(TAG, "Visual engine pending; scheduling retry to resume enrichment once AI models load.")
             return@withContext Result.retry()
+        } else if (!isStopped && remainingBatch.isNotEmpty()) {
+            schedule(applicationContext)
+            return@withContext Result.success()
         }
 
         Result.success()
@@ -210,6 +213,7 @@ class AuraEnrichmentWorker(
                 durationMs = entity.durationMs,
                 genre = entity.genre ?: "",
                 uriPath = entity.uriPath,
+                imageUrl = entity.imageUrl,
                 sizeBytes = entity.sizeBytes
             )
             val result = indexingService.indexVisual(applicationContext, mediaItem)

@@ -98,6 +98,11 @@ class CleanupReviewViewModel(
             _uiState.update { it.copy(isLoading = true, isLocked = false) }
             try {
                 val ineligibleEntries = diagnosticMediaStore.ineligibleItems.value
+                val items = repository.mediaItems.value
+                if (items.isEmpty() && ineligibleEntries.isEmpty() && repository.databaseState.value != com.example.data.DatabaseState.READY) {
+                    _uiState.update { it.copy(isLoading = true) }
+                    return@launch
+                }
                 val tasteDNA = repository.tasteDNA.value
                 val stats = repository.intelligenceStats.value
 

@@ -340,18 +340,10 @@ fun LibraryContent(
 
     val currentAdmittedCount = state.admissionProgress.totalAdmitted
 
-    // Capture/Thaw snapshot ONLY on initial load or explicit user triggers
-    LaunchedEffect(state.activeCategory, state.intelligentSort, state.standardSort, state.selectedFilter, state.searchRequest, userRefreshTrigger) {
+    // Update stableItems whenever latestSortedItems emits or user triggers filter/sort changes
+    LaunchedEffect(latestSortedItems) {
         stableItems = latestSortedItems
         snapshotAdmittedCount = currentAdmittedCount
-    }
-
-    // Initialize stableItems on initial load if empty
-    LaunchedEffect(latestSortedItems) {
-        if (stableItems.isEmpty() && latestSortedItems.isNotEmpty()) {
-            stableItems = latestSortedItems
-            snapshotAdmittedCount = currentAdmittedCount
-        }
     }
 
     // Filter out deleted items from the stable snapshot to ensure they disappear immediately

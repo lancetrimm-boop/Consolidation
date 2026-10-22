@@ -129,4 +129,82 @@ class AuraPhase1MediaFilteringTest {
             repository.close()
         }
     }
+
+    @Test
+    fun testPhotoAndVideoFilterSeparation() = runTest(testDispatcher) {
+        try {
+            val photoItem = MediaItem(id = "p1", title = "Photo 1", mediaType = "PHOTO", compatibilityStatus = CompatibilityStatus.PLAYABLE)
+            val videoItem = MediaItem(id = "v1", title = "Video 1", mediaType = "VIDEO", compatibilityStatus = CompatibilityStatus.PLAYABLE)
+            val items = listOf(photoItem, videoItem)
+
+            val photoFilterResults = repository.getFilteredAndSortedMedia(
+                filterType = "PHOTO",
+                sortCategory = SortCategory.STANDARD,
+                standardSort = StandardSortOption.NEWEST_FIRST,
+                intelligentSort = IntelligentSortOption.PERSONALIZED,
+                inputItems = items,
+                tasteDNA = TasteDNA()
+            )
+            assertEquals(1, photoFilterResults.size)
+            assertEquals("p1", photoFilterResults[0].id)
+
+            val videoFilterResults = repository.getFilteredAndSortedMedia(
+                filterType = "VIDEO",
+                sortCategory = SortCategory.STANDARD,
+                standardSort = StandardSortOption.NEWEST_FIRST,
+                intelligentSort = IntelligentSortOption.PERSONALIZED,
+                inputItems = items,
+                tasteDNA = TasteDNA()
+            )
+            assertEquals(1, videoFilterResults.size)
+            assertEquals("v1", videoFilterResults[0].id)
+
+            val allFilterResults = repository.getFilteredAndSortedMedia(
+                filterType = "ALL",
+                sortCategory = SortCategory.STANDARD,
+                standardSort = StandardSortOption.NEWEST_FIRST,
+                intelligentSort = IntelligentSortOption.PERSONALIZED,
+                inputItems = items,
+                tasteDNA = TasteDNA()
+            )
+            assertEquals(2, allFilterResults.size)
+        } finally {
+            repository.close()
+        }
+    }
+
+    @Test
+    fun testPhotoAndVideoFilterAliases() = runTest(testDispatcher) {
+        try {
+            val photoItem = MediaItem(id = "p1", title = "Photo 1", mediaType = "PHOTO", compatibilityStatus = CompatibilityStatus.PLAYABLE)
+            val videoItem = MediaItem(id = "v1", title = "Video 1", mediaType = "VIDEO", compatibilityStatus = CompatibilityStatus.PLAYABLE)
+            val movieItem = MediaItem(id = "v2", title = "Movie 1", mediaType = "MOVIE", compatibilityStatus = CompatibilityStatus.PLAYABLE)
+            val imageItem = MediaItem(id = "p2", title = "Image 1", mediaType = "IMAGE", compatibilityStatus = CompatibilityStatus.PLAYABLE)
+            val items = listOf(photoItem, videoItem, movieItem, imageItem)
+
+            val photosPluralResults = repository.getFilteredAndSortedMedia(
+                filterType = "PHOTOS",
+                sortCategory = SortCategory.STANDARD,
+                standardSort = StandardSortOption.NEWEST_FIRST,
+                intelligentSort = IntelligentSortOption.PERSONALIZED,
+                inputItems = items,
+                tasteDNA = TasteDNA()
+            )
+            assertEquals(2, photosPluralResults.size)
+            assertTrue(photosPluralResults.all { it.id == "p1" || it.id == "p2" })
+
+            val videosPluralResults = repository.getFilteredAndSortedMedia(
+                filterType = "VIDEOS",
+                sortCategory = SortCategory.STANDARD,
+                standardSort = StandardSortOption.NEWEST_FIRST,
+                intelligentSort = IntelligentSortOption.PERSONALIZED,
+                inputItems = items,
+                tasteDNA = TasteDNA()
+            )
+            assertEquals(2, videosPluralResults.size)
+            assertTrue(videosPluralResults.all { it.id == "v1" || it.id == "v2" })
+        } finally {
+            repository.close()
+        }
+    }
 }
