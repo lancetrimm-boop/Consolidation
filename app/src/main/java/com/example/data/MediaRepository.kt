@@ -2308,10 +2308,9 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                         val st = when {
                             totalEligible == 0 -> VisualIndexState.NEUTRAL_EMPTY
                             !isProviderReady -> VisualIndexState.YELLOW_INDEXING
-                            verifiedCount == 0 && (pendingCount > 0 || !isProviderReady) -> VisualIndexState.YELLOW_INDEXING
-                            verifiedCount == 0 && (failedCount > 0 || terminalFailedCount > 0) && pendingCount == 0 && isProviderReady -> VisualIndexState.RED_INCOMPLETE
-                            isCompleteWithFailures || (verifiedCount >= totalEligible && totalEligible > 0 && pendingCount == 0) -> VisualIndexState.GREEN_READY
-                            else -> VisualIndexState.YELLOW_INDEXING
+                            pendingCount > 0 || verifiedCount < totalEligible -> VisualIndexState.YELLOW_INDEXING
+                            (failedCount > 0 || terminalFailedCount > 0) && pendingCount == 0 -> VisualIndexState.RED_INCOMPLETE
+                            else -> VisualIndexState.GREEN_READY
                         }
 
                         val lbl = when (st) {
