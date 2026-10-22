@@ -719,6 +719,13 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             }
             _aiState.value = AIState.READY
             try { AuraEnrichmentWorker.schedule(context) } catch (e: Exception) { Log.w("MediaRepository", "Failed to schedule AuraEnrichmentWorker", e) }
+            scope.launch(dispatcher) {
+                try {
+                    backfillSemantics()
+                } catch (e: Exception) {
+                    Log.e("MediaRepository", "Error running post-init backfillSemantics", e)
+                }
+            }
         } catch (e: Exception) { _aiState.value = AIState.ERROR }
     }
 
