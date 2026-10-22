@@ -26,6 +26,9 @@ android {
     multiDexEnabled = true
     multiDexKeepFile = file("multidex-keep.txt")
     multiDexKeepProguard = file("multidex-config.pro")
+    ndk {
+      abiFilters.addAll(setOf("arm64-v8a", "armeabi-v7a"))
+    }
 
     // [REMEDIATION] 16KB Page-Size Alignment Support (P1)
     // Ensures compatibility with Android 15/16 high-performance devices.
