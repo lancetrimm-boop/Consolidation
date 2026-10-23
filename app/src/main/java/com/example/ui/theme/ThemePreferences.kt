@@ -1,13 +1,9 @@
 package com.example.ui.theme
 
 import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemeMode(val label: String) {
     SYSTEM("System"),
@@ -15,23 +11,27 @@ enum class ThemeMode(val label: String) {
     DARK("Dark")
 }
 
-private val Context.themeDataStore: DataStore<Preferences> by preferencesDataStore(name = "aura_theme_prefs")
+/**
+ * Theme preference store.
+ * Uses SharedPreferences for synchronous reads at startup (avoids first-frame flash).
+ * DataStore dependency remains enabled in build.gradle for future migration if desired.
+ */
+class ThemePreferences(context: Context) {
+    private val prefs = context.getSharedPreferences("aura_theme_prefs", Context.MODE_PRIVATE)
 
-class ThemePreferences(private val context: Context) {
+    private val _themeMode = MutableStateFlow(
+        ThemeMode.entries.getOrNull(prefs.getInt(KEY_THEME_MODE, 0)) ?: ThemeMode.SYSTEM
+    )
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
-    private val themeModeKey = stringPreferencesKey("theme_mode")
-
-    val themeMode: Flow<ThemeMode> = context.themeDataStore.data.map { prefs ->
-        when (prefs[themeModeKey]) {
-            "LIGHT" -> ThemeMode.LIGHT
-            "DARK" -> ThemeMode.DARK
-            else -> ThemeMode.SYSTEM
+    fun setThemeMode(mode: ThemeMode) {
+        if (_themeMode.value != mode) {
+            _themeMode.value = mode
+            prefs.edit().putInt(KEY_THEME_MODE, mode.ordinal).apply()
         }
     }
 
-    suspend fun setThemeMode(mode: ThemeMode) {
-        context.themeDataStore.edit { prefs ->
-            prefs[themeModeKey] = mode.name
-        }
+    companion object {
+        private const val KEY_THEME_MODE = "theme_mode"
     }
 }
