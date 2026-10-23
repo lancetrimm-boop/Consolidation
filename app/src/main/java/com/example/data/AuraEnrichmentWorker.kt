@@ -59,7 +59,7 @@ class AuraEnrichmentWorker(
             return@withContext Result.success()
         }
 
-        Log.i(TAG, "Executing enrichment batch - Items: ${batch.size}")
+        Log.i(TAG, "Executing enrichment batch - Items: ${batch.size}, IDs: ${batch.map { it.id.take(8) }}, Statuses: ${batch.map { it.enrichmentStatus }}, FailureCounts: ${batch.map { it.enrichmentFailureCount }}")
 
         var totalProgressMade = 0
 

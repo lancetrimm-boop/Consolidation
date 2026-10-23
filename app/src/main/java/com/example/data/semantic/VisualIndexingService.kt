@@ -113,6 +113,8 @@ class DefaultVisualIndexingService(
             val dbWriteStart = System.nanoTime()
             if (representation != null) {
                 repository.saveRepresentation(representation)
+                val verificationRead = repository.getSpecificRepresentation(item.id, SemanticRepresentationType.VISUAL, descriptor)
+                Log.i("VisualIndexing", "PERSISTENCE_VERIFY: mediaId=${item.id} verifiedExists=${verificationRead != null} vectorDim=${representation.dimensionality} vectorLength=${representation.vector.size}")
                 candidateRetriever.onRepresentationAdded(representation)
                 val dbWriteMs = (System.nanoTime() - dbWriteStart) / 1_000_000
 

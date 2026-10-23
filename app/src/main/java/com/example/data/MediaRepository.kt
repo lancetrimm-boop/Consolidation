@@ -2367,7 +2367,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     )
                 )
             } else {
-                db.semanticRepresentationDao().observeVerifiedVisualCount()
+                val activeModelId = mobileCLIPProvider?.descriptor?.modelId ?: "tinyclip-vit-8m-16"
+                db.semanticRepresentationDao().observeVerifiedVisualCount(modelId = activeModelId)
                     .combine(visibleMediaItems) { rawVerifiedCount, visibleItems ->
                         val metrics = try { db.mediaDao().getEnrichmentMetrics() } catch (_: Exception) { null }
                         val verifiedCount = maxOf(rawVerifiedCount, metrics?.visualCount ?: 0)

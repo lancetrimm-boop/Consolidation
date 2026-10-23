@@ -101,7 +101,7 @@ interface SemanticRepresentationDao {
     """)
     fun observeVerifiedVisualCount(
         type: String = "VISUAL",
-        modelId: String = "mobileclip-s0",
+        modelId: String = "tinyclip-vit-8m-16",
         version: Int = 1,
         dim: Int = 512,
         expectedByteLength: Int = 2048
