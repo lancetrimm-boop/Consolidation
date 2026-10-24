@@ -31,6 +31,8 @@ import java.nio.ByteBuffer
 object ClipExporter {
 
     private const val TAG = "ClipExporter"
+    private val exportMutex = kotlinx.coroutines.sync.Mutex()
+    private val activeExports = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     data class ExportResult(
         val isSuccess: Boolean,
@@ -62,6 +64,15 @@ object ClipExporter {
             val clampedStartMs = clip.startTimeMs
             val clampedEndMs = if (rawDurationMs > 0) minOf(clip.endTimeMs, rawDurationMs) else clip.endTimeMs
             val expectedDurationMs = clampedEndMs - clampedStartMs
+
+            val exportKey = "${sourceItem.id}_${clampedStartMs}_${clampedEndMs}"
+            exportMutex.lock()
+            if (activeExports.contains(exportKey)) {
+                exportMutex.unlock()
+                return@withContext ExportResult(false, null, null, "Export already in progress for this time range")
+            }
+            activeExports.add(exportKey)
+            exportMutex.unlock()
 
             // Deduplication Check
             val existingClip = repository.mediaItems.value.firstOrNull { item ->
@@ -193,12 +204,12 @@ object ClipExporter {
                 year = 2026,
                 duration = if (finalDurationSec >= 60) "${finalDurationSec/60}m ${finalDurationSec%60}s" else "${finalDurationSec}s",
                 durationMs = outputDurationMs.coerceAtLeast(1000L),
-                genre = "Aura Generated Clips",
+                genre = "Aura Generated",
                 imageUrl = finalUriStr,
                 rating = 5.0f,
                 category = "User Media",
                 aiSummary = "Aura AI Generated Clip",
-                moodTagsJson = "User Media,Clip",
+                moodTagsJson = "User Media,Clip,Aura Generated",
                 uriPath = finalUriStr,
                 dateAdded = System.currentTimeMillis(),
                 sizeBytes = tempFile.length(),
@@ -211,6 +222,11 @@ object ClipExporter {
             Log.e(TAG, "Export failed", e)
             ExportResult(false, null, null, e.localizedMessage)
         } finally {
+            val rawDurationMs = if (sourceItem.durationMs > 0) sourceItem.durationMs else 0L
+            val clampedStartMs = clip.startTimeMs
+            val clampedEndMs = if (rawDurationMs > 0) minOf(clip.endTimeMs, rawDurationMs) else clip.endTimeMs
+            val exportKey = "${sourceItem.id}_${clampedStartMs}_${clampedEndMs}"
+            activeExports.remove(exportKey)
             tempLocalSourceFile?.delete()
             tempOutputFile?.delete()
         }
