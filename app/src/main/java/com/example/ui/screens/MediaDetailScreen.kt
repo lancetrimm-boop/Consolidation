@@ -608,8 +608,7 @@ fun MediaDetailScreen(
                     val isResuming = repository.isResumingFromBackground || !isFirstLaunch
                     val isSeeSimilar = playlistState?.sourceTitle?.startsWith("See Similar") == true || playlistState?.sourceTitle?.startsWith("Similar") == true
                     val startPos = if (isSeeSimilar) 0L else if (isResuming) repository.lastPlaybackPositionMs else 0L
-                    val targetVideoIndex = playlistState?.currentIndex?.coerceAtLeast(0) 
-                        ?: videoOnlyItems.indexOfFirst { it.id == activeItem.id }.coerceAtLeast(0)
+                    val targetVideoIndex = videoOnlyItems.indexOfFirst { it.id == activeItem.id }.let { idx -> if (idx >= 0) idx else (playlistState?.currentIndex?.coerceAtLeast(0) ?: 0) }
                     
                     exoPlayer.setMediaItems(media3Items, targetVideoIndex, startPos)
                     exoPlayer.prepare()
@@ -720,9 +719,6 @@ fun MediaDetailScreen(
                                     durationMs = itemDur
                                 )
                             }
-                        },
-                        onLongPress = {
-                            captureAndSaveScreenshot(context, activeItem)
                         }
                     )
                 }

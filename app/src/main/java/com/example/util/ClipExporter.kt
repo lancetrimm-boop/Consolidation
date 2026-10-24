@@ -61,6 +61,16 @@ object ClipExporter {
 
             val clampedStartMs = clip.startTimeMs
             val clampedEndMs = if (rawDurationMs > 0) minOf(clip.endTimeMs, rawDurationMs) else clip.endTimeMs
+            val expectedDurationMs = clampedEndMs - clampedStartMs
+
+            // Deduplication Check
+            val existingClip = repository.mediaItems.value.firstOrNull { item ->
+                item.parentContentId == sourceItem.id && kotlin.math.abs(item.durationMs - expectedDurationMs) < 1000L
+            }
+            if (existingClip != null) {
+                Log.d(TAG, "Duplicate clip export request detected for source ${sourceItem.id}. Reusing existing clip: ${existingClip.id}")
+                return@withContext ExportResult(true, existingClip.uriPath, null)
+            }
 
             // Step 1: Route resolution
             val route = AuraPlaybackRouter.resolveRoute(sourceItem)
@@ -191,7 +201,8 @@ object ClipExporter {
                 moodTagsJson = "User Media,Clip",
                 uriPath = finalUriStr,
                 dateAdded = System.currentTimeMillis(),
-                sizeBytes = tempFile.length()
+                sizeBytes = tempFile.length(),
+                parentContentId = sourceItem.id
             )
 
             repository.addMediaEntity(entity)

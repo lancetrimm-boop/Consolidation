@@ -8,6 +8,8 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,14 +72,20 @@ fun MyStuffScreen(
                     .padding(horizontal = AuraSpacing.M, vertical = AuraSpacing.S)
             ) {
                 Text(
-                    text = "My Stuff",
+                    text = "Profile",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                Text(
+                    text = "Your Intelligence Profile",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 Spacer(modifier = Modifier.height(AuraSpacing.S))
 
+                // Primary Navigation Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(AuraSpacing.S)
@@ -95,7 +103,7 @@ fun MyStuffScreen(
                             modifier = Modifier.height(32.dp)
                         ) {
                             Box(
-                                modifier = Modifier.padding(horizontal = 16.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp),
                                 contentAlignment = androidx.compose.ui.Alignment.Center
                             ) {
                                 Row(
@@ -125,6 +133,68 @@ fun MyStuffScreen(
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(AuraSpacing.XS))
+
+                // Second Navigation Row: Liked and Aura Moments
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(AuraSpacing.S)
+                ) {
+                    Surface(
+                        onClick = { onNavigateToFavorites() },
+                        shape = RoundedCornerShape(AuraSpacing.S),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Favorite,
+                                contentDescription = "Liked",
+                                tint = DiscoveryViolet,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Liked",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    Surface(
+                        onClick = { onLaunchAuraMoments() },
+                        shape = RoundedCornerShape(AuraSpacing.S),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "Aura Moments",
+                                tint = DiscoveryViolet,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Aura Moments",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     }
                 }

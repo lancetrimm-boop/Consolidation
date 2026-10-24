@@ -2383,8 +2383,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                         val st = when {
                             totalEligible == 0 -> VisualIndexState.NEUTRAL_EMPTY
                             !isProviderReady -> VisualIndexState.YELLOW_INDEXING
-                            pendingCount > 0 || verifiedCount < totalEligible -> VisualIndexState.YELLOW_INDEXING
-                            (failedCount > 0 || terminalFailedCount > 0) && pendingCount == 0 -> VisualIndexState.RED_INCOMPLETE
+                            pendingCount > 0 -> VisualIndexState.YELLOW_INDEXING
+                            terminalFailedCount > 0 || failedCount > 0 -> VisualIndexState.RED_INCOMPLETE
                             else -> VisualIndexState.GREEN_READY
                         }
 
@@ -2410,7 +2410,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                                 }
                             }
                             VisualIndexState.RED_INCOMPLETE -> {
-                                "Visual Index Incomplete ($failedCount Failed) — Tap to Retry"
+                                val totalFails = maxOf(terminalFailedCount, failedCount)
+                                "Visual Index Incomplete ($totalFails Failed) — Tap to Retry"
                             }
                             VisualIndexState.NEUTRAL_EMPTY -> "No Eligible Media"
                         }

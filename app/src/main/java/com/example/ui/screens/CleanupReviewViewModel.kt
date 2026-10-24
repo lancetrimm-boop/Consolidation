@@ -176,10 +176,17 @@ class CleanupReviewViewModel(
                     val itemMap = repository.mediaItems.value.associateBy { it.id }
                     _uiState.update { state ->
                         val newSelectedIds = state.selectedIds.intersect(recommendations.map { it.mediaId }.toSet())
+                        val targetCategoryCount = statsMap[state.selectedCategory]?.count ?: 0
+                        val bestCategory = if (targetCategoryCount == 0) {
+                            CleanupCategory.entries.firstOrNull { (statsMap[it]?.count ?: 0) > 0 } ?: state.selectedCategory
+                        } else {
+                            state.selectedCategory
+                        }
                         val newState = state.copy(
                             recommendations = recommendations,
                             mediaItems = itemMap,
                             categoryStats = statsMap,
+                            selectedCategory = bestCategory,
                             isLoading = false,
                             selectedIds = newSelectedIds
                         )

@@ -517,20 +517,13 @@ fun ProfileScreen(
                             .fillMaxSize()
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        // Left Column: Collections & Your Visual Taste
+                        // Left Column: Your Visual Taste & Settings
                         Column(
                             modifier = Modifier
                                 .weight(1f)
                                 .verticalScroll(rememberScrollState())
                         ) {
-                            // 1. COLLECTIONS
-                            ProfileSectionTitle("Collections")
-                            Text(
-                                text = "What you have saved and organized",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 20.dp, start = 4.dp)
-                            )
+                            // Smart Cleanup Entry Point
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -540,20 +533,6 @@ fun ProfileScreen(
                             ) {
                                 Column {
                                     SettingsClickRow(
-                                        icon = Icons.Default.Favorite,
-                                        title = "Favorites",
-                                        subtitle = "Your explicit saved media",
-                                        onClick = { onNavigateToFavorites() }
-                                    )
-                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                    SettingsClickRow(
-                                        icon = Icons.Default.AutoAwesomeMotion,
-                                        title = "Aura Moments",
-                                        subtitle = "Intelligent curated slideshows",
-                                        onClick = { onLaunchAuraMoments() }
-                                    )
-                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                    SettingsClickRow(
                                         icon = Icons.Default.Delete,
                                         title = "Smart Cleanup",
                                         subtitle = "Intelligent storage management",
@@ -562,23 +541,7 @@ fun ProfileScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(40.dp))
-
-                            // 2. SIGNATURE STYLES
-                            ProfileSectionTitle("Signature Styles")
-                            Text(
-                                text = "Your intelligence profile and visual style clusters",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 20.dp, start = 4.dp)
-                            )
-                            
-                            SignatureStylesPresentation(
-                                profile = styleProfile,
-                                onMediaSelect = onMediaSelect
-                            )
-
-                            Spacer(modifier = Modifier.height(32.dp))
+                            Spacer(modifier = Modifier.height(24.dp))
                             
                             // Tune My Taste (Detailed 24-dimension editor)
                             Surface(
@@ -782,14 +745,7 @@ fun ProfileScreen(
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = AuraSpacing.M, vertical = AuraSpacing.XS)
                     ) {
-                        // 1. COLLECTIONS
-                        ProfileSectionTitle("Collections")
-                        Text(
-                            text = "What you have saved and organized",
-                            fontSize = 12.sp,
-                            color = AuraMutedSlate,
-                            modifier = Modifier.padding(bottom = AuraSpacing.M, start = AuraSpacing.XXS)
-                        )
+                        // Smart Cleanup Entry Point
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -799,24 +755,6 @@ fun ProfileScreen(
                         ) {
                             Column {
                                 SettingsClickRow(
-                                    icon = Icons.Default.Favorite,
-                                    title = "Favorites",
-                                    subtitle = "Your explicit saved media",
-                                    onClick = { onNavigateToFavorites() }
-                                )
-                                
-                                HorizontalDivider(modifier = Modifier.padding(horizontal = AuraSpacing.L), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                
-                                SettingsClickRow(
-                                    icon = Icons.Default.AutoAwesomeMotion,
-                                    title = "Aura Moments",
-                                    subtitle = "Intelligent curated slideshows",
-                                    onClick = { onLaunchAuraMoments() }
-                                )
-
-                                HorizontalDivider(modifier = Modifier.padding(horizontal = AuraSpacing.L), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                                SettingsClickRow(
                                     icon = Icons.Default.Delete,
                                     title = "Smart Cleanup",
                                     subtitle = "Intelligent storage management",
@@ -825,22 +763,6 @@ fun ProfileScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(AuraSpacing.L))
-
-                        // 2. SIGNATURE STYLES
-                        ProfileSectionTitle("Signature Styles")
-                        Text(
-                            text = "Your intelligence profile and visual style clusters",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = AuraSpacing.M, start = AuraSpacing.XXS)
-                        )
-                        
-                        SignatureStylesPresentation(
-                            profile = styleProfile,
-                            onMediaSelect = onMediaSelect
-                        )
-                        
                         Spacer(modifier = Modifier.height(AuraSpacing.L))
                         Surface(
                             modifier = Modifier
