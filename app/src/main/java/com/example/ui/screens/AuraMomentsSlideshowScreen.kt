@@ -1,0 +1,494 @@
+package com.example.ui.screens
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.Player
+import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
+import com.example.data.MediaItem
+import com.example.data.MediaRepository
+import com.example.data.MomentsMode
+import com.example.data.SlideshowPlaybackManager
+import com.example.ui.theme.AuraPurple
+import kotlinx.coroutines.delay
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+fun AuraMomentsSlideshowScreen(
+    mode: MomentsMode,
+    repository: MediaRepository,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    onSeeSimilar: (MediaItem) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val viewModel: SlideshowViewModel = viewModel(
+        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                val vm = SlideshowViewModel(repository)
+                repository.entitlementRepository?.let { entitlement ->
+                    vm.momentExporter = com.example.data.media.MomentExporter(context.applicationContext, entitlement)
+                }
+                return vm as T
+            }
+        }
+    )
+
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(mode) {
+        viewModel.generateSlideshow(mode)
+    }
+
+    BackHandler(onBack = onClose)
+
+    Crossfade<SlideshowViewModel.SlideshowUiState>(targetState = uiState, animationSpec = tween(500), label = "slideshow_state") { state ->
+        when (state) {
+            is SlideshowViewModel.SlideshowUiState.Loading -> {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = AuraPurple)
+                }
+            }
+            is SlideshowViewModel.SlideshowUiState.Error -> {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(text = state.message, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.padding(24.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        }
+                    }
+                }
+            }
+            is SlideshowViewModel.SlideshowUiState.Ready -> {
+                val exportState by viewModel.exportState.collectAsStateWithLifecycle()
+                
+                SlideshowRenderer(
+                    items = state.items,
+                    mode = mode,
+                    repository = repository,
+                    onClose = onClose,
+                    modifier = modifier,
+                    onSeeSimilar = onSeeSimilar,
+                    exportState = exportState,
+                    onExport = { viewModel.exportMoment(context) }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun SlideshowRenderer(
+    items: List<MediaItem>,
+    mode: MomentsMode,
+    repository: MediaRepository,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    onSeeSimilar: (MediaItem) -> Unit = {},
+    exportState: com.example.data.media.MomentExporter.ExportState = com.example.data.media.MomentExporter.ExportState.Idle,
+    onExport: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val playbackManager = remember { SlideshowPlaybackManager(context) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            playbackManager.release()
+        }
+    }
+
+    var currentIndex by remember { mutableIntStateOf(0) }
+    var isPlaying by remember { mutableStateOf(true) }
+    var slideProgress by remember { mutableFloatStateOf(0f) }
+    var showControls by remember { mutableStateOf(true) }
+
+    val currentItem = items[currentIndex.coerceIn(0, items.size - 1)]
+    val isVideo = currentItem.mediaType == "VIDEO"
+
+    val slideshowDelaySec by repository.slideshowDelaySeconds.collectAsStateWithLifecycle()
+
+    // Unified Pacing & Auto-advance logic
+    LaunchedEffect(currentIndex, isPlaying, slideshowDelaySec) {
+        if (!isPlaying) return@LaunchedEffect
+        
+        slideProgress = 0f
+        
+        if (isVideo) {
+            playbackManager.prepareVideo(currentItem)
+            val player = playbackManager.getPlayer()
+            
+            // Wait for video to end or 15s cap
+            val startTime = System.currentTimeMillis()
+            while (isPlaying && System.currentTimeMillis() - startTime < 15000) {
+                delay(200)
+                val duration = player.duration.coerceAtLeast(1)
+                slideProgress = (player.currentPosition.toFloat() / duration).coerceIn(0f, 1f)
+                
+                if (player.playbackState == Player.STATE_ENDED) break
+            }
+            playbackManager.stop()
+        } else {
+            val totalSteps = 20
+            val totalDelayMs = slideshowDelaySec.coerceIn(1, 10) * 1000L
+            val stepDelayMs = totalDelayMs / totalSteps
+            for (i in 1..totalSteps) {
+                delay(stepDelayMs)
+                if (!isPlaying) break
+                slideProgress = i.toFloat() / totalSteps.toFloat()
+            }
+        }
+        
+        if (isPlaying) {
+            repository.interactionRepository?.let { iRepo ->
+                com.example.data.AuraInteractionService.logInteraction(
+                    repository,
+                    iRepo,
+                    com.example.data.AuraInteractionType.MEDIA_COMPLETED,
+                    mediaId = currentItem.id
+                )
+            }
+            // Auto advance
+            if (currentIndex < items.size - 1) {
+                currentIndex++
+            } else {
+                currentIndex = 0 // loop
+            }
+        }
+    }
+
+    // Logging engagement safely
+    fun logInteraction(type: String) {
+        repository.recordMicroMoment(currentItem.id, 1)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
+                showControls = !showControls
+            }
+            .testTag("moments_slideshow_container")
+    ) {
+        // Cross-modal Renderer
+        Crossfade(targetState = currentItem, animationSpec = tween(800)) { item ->
+            if (item.mediaType == "VIDEO") {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = playbackManager.getPlayer()
+                            useController = false
+                            resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                AsyncImage(
+                    model = item.uriPath.ifBlank { item.imageUrl },
+                    contentDescription = item.title,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        // Top Gradient & Progress Overlay
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)
+                    )
+                )
+                .padding(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 24.dp)
+        ) {
+            Column {
+                // Segmented Progress Indicator
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items.forEachIndexed { index, _ ->
+                        val segmentProgress = when {
+                            index < currentIndex -> 1f
+                            index == currentIndex -> slideProgress
+                            else -> 0f
+                        }
+                        LinearProgressIndicator(
+                            progress = { segmentProgress },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = AuraPurple,
+                            trackColor = Color.White.copy(alpha = 0.3f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Header Bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            color = AuraPurple.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "AURA MOMENTS • ${mode.title.uppercase()}",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (exportState is com.example.data.media.MomentExporter.ExportState.Exporting) {
+                            Text(
+                                text = "EXPORTING ${exportState.progress}%",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        } else {
+                            IconButton(
+                                onClick = onExport,
+                                modifier = Modifier.testTag("moments_slideshow_export_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "Export Moment",
+                                    tint = Color.White
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onClose,
+                            modifier = Modifier.testTag("moments_slideshow_close_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Bottom Controls Overlay
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f))
+                        )
+                    )
+                    .padding(horizontal = 20.dp, vertical = 24.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Item Title and Style context
+                    Text(
+                        text = currentItem.title,
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    val reasonText = currentItem.selectionReason?.takeIf { it.isNotBlank() } ?: 
+                                   listOfNotNull(currentItem.genre.takeIf { it.isNotBlank() }, 
+                                               currentItem.moodTags.takeIf { it.isNotEmpty() }?.joinToString(", "))
+                                   .joinToString(" • ")
+
+                    if (reasonText.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = reasonText,
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Controls Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Add to Favorites
+                        IconButton(onClick = {
+                            repository.addToFavorites(currentItem.id)
+                        }) {
+                            Icon(
+                                imageVector = if (currentItem.isFavorite) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = "Favorite",
+                                tint = if (currentItem.isFavorite) AuraPurple else Color.White
+                            )
+                        }
+
+                        // Previous slide
+                        IconButton(
+                            onClick = {
+                                logInteraction("previous")
+                                if (currentIndex > 0) {
+                                    currentIndex--
+                                } else {
+                                    currentIndex = items.size - 1
+                                }
+                                slideProgress = 0f
+                            },
+                            modifier = Modifier.testTag("moments_slideshow_prev_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = "Previous",
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+
+                        // Play/Pause toggle
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(AuraPurple)
+                                .clickable {
+                                    isPlaying = !isPlaying
+                                    logInteraction("pause_toggle")
+                                }
+                                .testTag("moments_slideshow_play_pause_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        // Next slide
+                        IconButton(
+                            onClick = {
+                                logInteraction("next")
+                                if (currentIndex < items.size - 1) {
+                                    currentIndex++
+                                } else {
+                                    currentIndex = 0
+                                }
+                                slideProgress = 0f
+                            },
+                            modifier = Modifier.testTag("moments_slideshow_next_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "Next",
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+
+                        // See Similar (Update 8)
+                        IconButton(onClick = {
+                            onSeeSimilar(currentItem)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "See Similar",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

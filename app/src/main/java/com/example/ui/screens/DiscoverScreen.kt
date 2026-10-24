@@ -1,0 +1,912 @@
+package com.example.ui.screens
+
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
+import android.app.Activity
+import android.graphics.Bitmap
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.example.data.*
+import com.example.ui.components.*
+import com.example.ui.theme.*
+import com.example.ui.models.DiscoverPresentationState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+@Composable
+fun DiscoverScreen(
+    repository: MediaRepository,
+    viewModel: DiscoverViewModel,
+    onMediaSelect: (MediaItem) -> Unit,
+    onObsessionSelect: (ObsessionRecommendation) -> Unit,
+    onScanAndImport: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val feedState by viewModel.feedState.collectAsStateWithLifecycle()
+    val detailState by viewModel.detailState.collectAsStateWithLifecycle()
+    
+    val tasteDNA by repository.tasteDNA.collectAsStateWithLifecycle()
+    val preferenceProfile by repository.preferenceProfile.collectAsStateWithLifecycle()
+    val discoveryPolicy by repository.discoveryPolicy.collectAsStateWithLifecycle()
+    val latestDiscoverProvenance by repository.latestDiscoverProvenance.collectAsStateWithLifecycle()
+
+    val presentationState = DiscoverPresentationState(
+        obsessions = (feedState as? DiscoverFeedState.Success)?.snapshot?.obsessions ?: emptyList(),
+        systemState = (feedState as? DiscoverFeedState.Success)?.snapshot?.systemState ?: SystemDiscoveryState(),
+        isLoading = feedState is DiscoverFeedState.Loading,
+        errorMessage = (feedState as? DiscoverFeedState.Error)?.message,
+        tasteDNA = tasteDNA,
+        preferenceProfile = preferenceProfile,
+        discoveryPolicy = discoveryPolicy,
+        provenanceMap = latestDiscoverProvenance
+    )
+
+    DiscoverContent(
+        state = presentationState,
+        detailState = detailState,
+        onRefresh = { viewModel.refresh(forceNewSession = true) },
+        onObsessionSelect = {
+            viewModel.selectObsession(it)
+            onObsessionSelect(it)
+        },
+        onMediaSelect = { item, obsessionTitle, list ->
+            repository.setPlaylist(list, list.indexOf(item).coerceAtLeast(0), obsessionTitle)
+            onMediaSelect(item)
+        },
+        onBackFromDetail = {
+            repository.interactionRepository?.let { iRepo ->
+                com.example.data.AuraInteractionService.logInteraction(
+                    repository,
+                    iRepo,
+                    com.example.data.AuraInteractionType.NAVIGATED_BACK
+                )
+            }
+            viewModel.deselectObsession()
+        },
+        onFavoriteToggle = { repository.addToFavorites(it) },
+        onExpandObsession = { viewModel.expandCurrentObsession() },
+        onTrySomethingNew = { viewModel.trySomethingNew() },
+        onUpdateDiscoveryPolicy = { repository.updateDiscoveryPolicy(it) },
+        onUpdateTasteDNA = { updatedDna -> 
+            repository.updateTasteDNA(updatedDna, isUserGenerated = true, evidenceCategory = "Discover Manual Tuning") 
+        },
+        onUpdatePreferenceProfile = { updatedProfile -> 
+            repository.updatePreferenceProfile(updatedProfile) 
+        },
+        onRecordExposures = { ids -> repository.recordExposures(ids) },
+        onFlushExposures = { repository.forceFlushExposures() },
+        onScanAndImport = onScanAndImport,
+        discoverScrollIndex = repository.discoverScrollIndex,
+        discoverScrollOffset = repository.discoverScrollOffset,
+        onScrollPositionChange = { idx, offset ->
+            repository.discoverScrollIndex = idx
+            repository.discoverScrollOffset = offset
+        },
+        intelligenceRepository = repository.intelligenceRepository,
+        modifier = modifier
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DiscoverContent(
+    state: DiscoverPresentationState,
+    detailState: ObsessionDetailState,
+    onRefresh: () -> Unit,
+    onObsessionSelect: (ObsessionRecommendation) -> Unit,
+    onMediaSelect: (MediaItem, String, List<MediaItem>) -> Unit,
+    onBackFromDetail: () -> Unit,
+    onFavoriteToggle: (String) -> Unit,
+    onExpandObsession: () -> Unit,
+    onTrySomethingNew: () -> Unit,
+    onUpdateDiscoveryPolicy: (DiscoveryPolicy) -> Unit,
+    onUpdateTasteDNA: (TasteDNA) -> Unit,
+    onUpdatePreferenceProfile: (TasteDNA.PreferenceProfile) -> Unit,
+    onRecordExposures: (List<String>) -> Unit,
+    onFlushExposures: () -> Unit,
+    onScanAndImport: (() -> Unit)?,
+    discoverScrollIndex: Int,
+    discoverScrollOffset: Int,
+    onScrollPositionChange: (Int, Int) -> Unit,
+    intelligenceRepository: IntelligenceRepository?,
+    modifier: Modifier = Modifier
+) {
+    BackHandler(enabled = detailState is ObsessionDetailState.Active) {
+        onBackFromDetail()
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val isLandscape = this.maxWidth > this.maxHeight
+        val horizontalPadding = if (isLandscape) (this.maxWidth * 0.15f) else 0.dp
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = horizontalPadding)
+        ) {
+            when (detailState) {
+                is ObsessionDetailState.Active -> {
+                    ObsessionDetailView(
+                        obsession = detailState.obsession,
+                        batch = detailState.batch,
+                        isLoading = detailState.isLoading,
+                        onBack = onBackFromDetail,
+                        onMediaSelect = { onMediaSelect(it, detailState.obsession.title, detailState.batch.items) },
+                        onFavoriteToggle = onFavoriteToggle,
+                        onExpand = onExpandObsession,
+                        onTrySomethingNew = onTrySomethingNew,
+                        onRecordExposures = onRecordExposures,
+                        onFlushExposures = onFlushExposures
+                    )
+                }
+                else -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(top = AuraSpacing.S),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        AuraSectionHeader(
+                            title = "Discover",
+                            subtitle = "Personal intelligence engine",
+                            modifier = Modifier.weight(1f),
+                            actions = {
+                                IconButton(onClick = { /* Search Placeholder */ }) {
+                                    Icon(imageVector = Icons.Outlined.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurface)
+                                }
+                                IconButton(onClick = onRefresh) {
+                                    Icon(imageVector = Icons.Outlined.Sync, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        )
+                    }
+
+                    PullToRefreshBox(
+                        isRefreshing = state.isLoading,
+                        onRefresh = onRefresh,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        if (state.isLoading && state.obsessions.isEmpty()) {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(horizontal = AuraSpacing.M, vertical = AuraSpacing.XS),
+                                verticalArrangement = Arrangement.spacedBy(AuraSpacing.M)
+                            ) {
+                                items(3) {
+                                    com.example.ui.components.AuraSkeletonTile(
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        } else if (state.errorMessage != null) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(text = state.errorMessage, color = Color.Red)
+                            }
+                        } else if (state.obsessions.isEmpty()) {
+                            EmptyDiscoverView(
+                                onScanAndImport = onScanAndImport
+                            )
+                        } else {
+                            DiscoveryFeed(
+                                obsessions = state.obsessions,
+                                systemState = state.systemState,
+                                tasteDNA = state.tasteDNA,
+                                preferenceProfile = state.preferenceProfile,
+                                discoveryPolicy = state.discoveryPolicy,
+                                onObsessionSelect = onObsessionSelect,
+                                onUpdateDiscoveryPolicy = onUpdateDiscoveryPolicy,
+                                onUpdateTasteDNA = onUpdateTasteDNA,
+                                onUpdatePreferenceProfile = onUpdatePreferenceProfile,
+                                onRecordExposures = onRecordExposures,
+                                onFlushExposures = onFlushExposures,
+                                discoverScrollIndex = discoverScrollIndex,
+                                discoverScrollOffset = discoverScrollOffset,
+                                onScrollPositionChange = onScrollPositionChange,
+                                intelligenceRepository = intelligenceRepository
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ObsessionDetailView(
+    obsession: ObsessionRecommendation,
+    batch: ObsessionContentBatch,
+    isLoading: Boolean,
+    onBack: () -> Unit,
+    onMediaSelect: (MediaItem) -> Unit,
+    onFavoriteToggle: (String) -> Unit,
+    onExpand: () -> Unit,
+    onTrySomethingNew: () -> Unit,
+    onRecordExposures: (List<String>) -> Unit,
+    onFlushExposures: () -> Unit
+) {
+    val listState = rememberLazyListState()
+
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        AuraTopBar(
+            title = obsession.title,
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        )
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 32.dp)
+        ) {
+            item {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = obsession.subtitle,
+                        fontSize = 14.sp,
+                        color = AuraSlate
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${batch.items.size} DISCOVERIES",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = DiscoveryViolet,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+
+            items(
+                items = batch.items,
+                key = { it.id }
+            ) { item ->
+                ImmersiveMediaCard(
+                    item = item,
+                    onClick = {
+                        onMediaSelect(item)
+                    },
+                    onFavoriteToggle = { onFavoriteToggle(item.id) }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            if (isLoading) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.CircularProgressIndicator(color = DiscoveryViolet)
+                    }
+                }
+            } else if (batch.items.isNotEmpty()) {
+                item {
+                    EndOfBatchView(
+                        canExpand = batch.canExpand,
+                        onExpand = onExpand,
+                        onTrySomethingNew = onTrySomethingNew,
+                        onBackToObsessions = onBack
+                    )
+                }
+            }
+        }
+    }
+
+    // AURA REPAIR: Viewport-aware preview coordination for Discover Detail
+    LaunchedEffect(listState, batch.items) {
+        snapshotFlow { 
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            val visibleIds = visibleItems.mapNotNull { it.key as? String }
+            val allIds = batch.items.map { it.id }
+            val firstIdx = listState.firstVisibleItemIndex
+            Triple(visibleIds, allIds, firstIdx to listState.isScrollInProgress)
+        }.collect { (visible, all, scrollState) ->
+            val (firstIdx, scrolling) = scrollState
+            com.example.ui.components.PreviewCoordinator.updateWindow(visible, all, firstIdx)
+            com.example.ui.components.PreviewCoordinator.setScrollingFast(scrolling)
+        }
+    }
+
+    // Record exposures for the batch items as they appear
+    LaunchedEffect(batch.items) {
+        if (batch.items.isNotEmpty()) {
+            onRecordExposures(batch.items.map { it.id })
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onFlushExposures()
+        }
+    }
+}
+
+@Composable
+fun EndOfBatchView(
+    canExpand: Boolean,
+    onExpand: () -> Unit,
+    onTrySomethingNew: () -> Unit,
+    onBackToObsessions: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(AuraSpacing.XL),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.AutoAwesome,
+            contentDescription = null,
+            tint = DiscoveryViolet.copy(alpha = 0.5f),
+            modifier = Modifier.size(40.dp)
+        )
+        
+        Spacer(modifier = Modifier.height(AuraSpacing.M))
+        
+        Text(
+            text = "End of current batch",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Black,
+            color = AuraMidnight
+        )
+        
+        Spacer(modifier = Modifier.height(AuraSpacing.XS))
+        
+        Text(
+            text = "Aura has analyzed all candidates in this obsession. Would you like more or something different?",
+            style = MaterialTheme.typography.bodySmall,
+            color = AuraSlate,
+            textAlign = TextAlign.Center,
+            lineHeight = 16.sp
+        )
+        
+        Spacer(modifier = Modifier.height(AuraSpacing.L))
+        
+        if (canExpand) {
+            AuraButton(
+                text = "SEE MORE IN THIS STYLE",
+                onClick = onExpand,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(AuraSpacing.S))
+        }
+        
+        AuraButton(
+            text = "TRY SOMETHING NEW",
+            onClick = onTrySomethingNew,
+            modifier = Modifier.fillMaxWidth()
+        )
+        
+        Spacer(modifier = Modifier.height(AuraSpacing.S))
+        
+        androidx.compose.material3.TextButton(
+            onClick = onBackToObsessions,
+            contentPadding = PaddingValues(AuraSpacing.XS)
+        ) {
+            Text(
+                "BACK TO DISCOVER", 
+                style = MaterialTheme.typography.labelLarge,
+                color = AuraMutedSlate, 
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun ImmersiveMediaCard(
+    item: MediaItem,
+    onClick: () -> Unit,
+    onFavoriteToggle: () -> Unit
+) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AuraSpacing.M)
+            .clip(RoundedCornerShape(AuraSpacing.CornerRadiusMedium))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable { onClick() }
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AuraSpacing.CornerRadiusMedium))
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().aspectRatio(if (isLandscape) 2.5f else 1.5f)) { // Adjusted aspect ratio
+            AuraMediaThumbnail(
+                itemId = item.id,
+                mediaType = item.mediaType,
+                imageUrl = item.imageUrl,
+                uriPath = item.uriPath,
+                title = item.title,
+                convertedUri = item.convertedUri,
+                modifier = Modifier.fillMaxSize(),
+                locationTag = "immersive_card"
+            )
+
+            // Top Buttons
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(AuraSpacing.XS),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Surface(
+                    onClick = onFavoriteToggle,
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.3f),
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "Favorite",
+                            tint = if (item.isFavorite) Color.Red else Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        Column(modifier = Modifier.padding(AuraSpacing.M)) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            if (item.aiSummary.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = item.aiSummary,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DiscoveryFeed(
+    obsessions: List<ObsessionRecommendation>,
+    systemState: SystemDiscoveryState,
+    tasteDNA: TasteDNA,
+    preferenceProfile: TasteDNA.PreferenceProfile,
+    discoveryPolicy: DiscoveryPolicy,
+    onObsessionSelect: (ObsessionRecommendation) -> Unit,
+    onUpdateDiscoveryPolicy: (DiscoveryPolicy) -> Unit,
+    onUpdateTasteDNA: (TasteDNA) -> Unit,
+    onUpdatePreferenceProfile: (TasteDNA.PreferenceProfile) -> Unit,
+    onRecordExposures: (List<String>) -> Unit,
+    onFlushExposures: () -> Unit,
+    discoverScrollIndex: Int,
+    discoverScrollOffset: Int,
+    onScrollPositionChange: (Int, Int) -> Unit,
+    intelligenceRepository: IntelligenceRepository?
+) {
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = discoverScrollIndex,
+        initialFirstVisibleItemScrollOffset = discoverScrollOffset
+    )
+
+    val dashboardState = if (intelligenceRepository != null) {
+        val dashboardViewModel: com.example.ui.screens.IntelligenceDashboardViewModel = viewModel(
+            key = "intelligence_dashboard",
+            factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                    @Suppress("UNCHECKED_CAST")
+                    return com.example.ui.screens.IntelligenceDashboardViewModel(intelligenceRepository) as T
+                }
+            }
+        )
+        dashboardViewModel.uiState.collectAsStateWithLifecycle().value
+    } else {
+        com.example.ui.screens.IntelligenceDashboardState()
+    }
+    
+    val report = dashboardState.report
+
+    // Save scroll position for restoration
+    LaunchedEffect(listState) {
+        snapshotFlow { Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) }
+            .collect { (index, offset) ->
+                onScrollPositionChange(index, offset)
+            }
+    }
+
+    // AURA REPAIR: Viewport-aware preview coordination for Discover Feed
+    LaunchedEffect(listState, obsessions) {
+        snapshotFlow { 
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            // For obsession cards, the "media" is often the first preview item
+            val visibleIds = visibleItems.mapNotNull { obsessions.getOrNull(it.index)?.previewItems?.firstOrNull()?.id }
+            val allIds = obsessions.mapNotNull { it.previewItems.firstOrNull()?.id }
+            val firstIdx = listState.firstVisibleItemIndex
+            Triple(visibleIds, allIds, firstIdx to listState.isScrollInProgress)
+        }.collect { (visible, all, scrollState) ->
+            val (firstIdx, scrolling) = scrollState
+            com.example.ui.components.PreviewCoordinator.updateWindow(visible, all, firstIdx)
+            com.example.ui.components.PreviewCoordinator.setScrollingFast(scrolling)
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = AuraSpacing.XS, bottom = AuraSpacing.XXL),
+        verticalArrangement = Arrangement.spacedBy(AuraSpacing.M)
+    ) {
+        items(
+            items = obsessions,
+            key = { it.id }
+        ) { obsession ->
+            ObsessionCard(
+                obsession = obsession,
+                onClick = { onObsessionSelect(obsession) }
+            )
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(AuraSpacing.M))
+            
+            Text(
+                text = "Intelligence Tuning",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = AuraSpacing.M, vertical = AuraSpacing.XS)
+            )
+            
+            Box(modifier = Modifier.padding(horizontal = AuraSpacing.M)) {
+                Column {
+                    DiscoveryPolicyControl(
+                        policy = discoveryPolicy,
+                        onPolicyChange = onUpdateDiscoveryPolicy
+                    )
+                    
+                    Spacer(modifier = Modifier.height(AuraSpacing.M))
+                    
+                    AuraEngagementTunerCard(
+                        tasteDNA = tasteDNA,
+                        preferenceProfile = preferenceProfile,
+                        onTasteDnaUpdate = onUpdateTasteDNA,
+                        onPreferenceProfileUpdate = onUpdatePreferenceProfile,
+                        aiDescription = report?.tasteProfile?.description,
+                        showWeightsAtTop = true,
+                        collapsibleSliders = true,
+                        initialSlidersExpanded = false,
+                        isDiscoverContext = true
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(AuraSpacing.XL))
+        }
+    }
+
+    // Phase 7: Record exposures for the visible preview items
+    LaunchedEffect(obsessions) {
+        val allPreviewIds = obsessions.flatMap { it.previewItems.map { item -> item.id } }
+        onRecordExposures(allPreviewIds)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onFlushExposures()
+        }
+    }
+}
+
+@Composable
+fun ObsessionCard(
+    obsession: ObsessionRecommendation,
+    onClick: () -> Unit
+) {
+    val mainItem = obsession.previewItems.firstOrNull() ?: return
+
+    // Entry Animation
+    var visible by remember { mutableStateOf(false) }
+    val alpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(700),
+        label = "alpha"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.98f,
+        animationSpec = tween(700),
+        label = "scale"
+    )
+    LaunchedEffect(Unit) { visible = true }
+
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val cardAspectRatio = if (isLandscape) 2.2f else 1.1f
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AuraSpacing.M)
+            .graphicsLayer { 
+                this.alpha = alpha 
+                this.scaleX = scale
+                this.scaleY = scale
+            }
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable(
+                onClickLabel = "Open ${obsession.title}",
+                onClick = onClick
+            )
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
+    ) {
+        // Large Media Preview
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(cardAspectRatio)
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+        ) {
+            AuraMediaThumbnail(
+                itemId = mainItem.id,
+                mediaType = mainItem.mediaType,
+                imageUrl = mainItem.imageUrl,
+                uriPath = mainItem.uriPath,
+                title = mainItem.title,
+                convertedUri = mainItem.convertedUri,
+                modifier = Modifier.fillMaxSize(),
+                locationTag = "discover_feed"
+            )
+            
+            // Scrim
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.4f))
+                        )
+                    )
+            )
+        }
+
+        // Details
+        Column(
+            modifier = Modifier.padding(AuraSpacing.M)
+        ) {
+            Text(
+                text = obsession.title.uppercase(),
+                color = DiscoveryViolet,
+                fontWeight = FontWeight.Black,
+                fontSize = 11.sp,
+                letterSpacing = 1.sp
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = obsession.subtitle,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp,
+                lineHeight = 24.sp
+            )
+            
+            Spacer(modifier = Modifier.height(AuraSpacing.M))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Secondary Previews
+                Row(horizontalArrangement = Arrangement.spacedBy(AuraSpacing.XS)) {
+                    obsession.previewItems.drop(1).take(3).forEach { item ->
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(AuraSubtleBorder)
+                        ) {
+                            AuraMediaThumbnail(
+                                itemId = item.id,
+                                mediaType = item.mediaType,
+                                imageUrl = item.imageUrl,
+                                uriPath = item.uriPath,
+                                title = item.title,
+                                convertedUri = item.convertedUri,
+                                modifier = Modifier.fillMaxSize(),
+                                locationTag = "discover_secondary"
+                            )
+                        }
+                    }
+                }
+                
+                AuraButton(
+                    text = "EXPLORE",
+                    onClick = onClick,
+                    modifier = Modifier.height(36.dp).padding(start = AuraSpacing.S)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun EmptyDiscoverView(onScanAndImport: (() -> Unit)?) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(AuraSpacing.XL),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.AutoAwesome,
+            contentDescription = null,
+            tint = AuraMutedSlate.copy(alpha = 0.3f),
+            modifier = Modifier.size(56.dp)
+        )
+        Spacer(modifier = Modifier.height(AuraSpacing.M))
+        Text(
+            text = "Your Intelligence Awaits",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Black,
+            color = AuraMidnight,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(AuraSpacing.XS))
+        Text(
+            text = "Aura needs more local content to generate obsessions. Scan your device or import media to start discovering.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = AuraSlate,
+            textAlign = TextAlign.Center,
+            lineHeight = 20.sp
+        )
+        Spacer(modifier = Modifier.height(AuraSpacing.L))
+        AuraButton(
+            text = "SCAN FOR MEDIA",
+            onClick = { onScanAndImport?.invoke() }
+        )
+    }
+}
+
+@Composable
+fun RecommendationExplanationView(
+    explanation: RecommendationExplanation,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(AuraSubtleSurface, RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Why this match?",
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            color = DiscoveryViolet
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = explanation.primaryReason,
+            fontSize = 13.sp,
+            color = AuraMidnight,
+            lineHeight = 18.sp
+        )
+        
+        if (explanation.detailPoints.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
+            explanation.detailPoints.forEach { point ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(DiscoveryViolet))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = point, fontSize = 11.sp, color = AuraSlate)
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+        }
+        
+        explanation.confidenceLabel?.let { label ->
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = label,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black,
+                color = DiscoveryViolet.copy(alpha = 0.7f),
+                letterSpacing = 0.5.sp
+            )
+        }
+    }
+}

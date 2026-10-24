@@ -1,0 +1,179 @@
+name: Release AAB Build and Verify
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Validate Secrets Presence
+        run: |
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Error: KEYSTORE_BASE64 secret is missing."
+            exit 1
+          fi
+          if [ -z "${{ secrets.STORE_PASSWORD }}" ]; then
+            echo "Error: STORE_PASSWORD secret is missing."
+            exit 1
+          fi
+          if [ -z "${{ secrets.KEY_PASSWORD }}" ]; then
+            echo "Error: KEY_PASSWORD secret is missing."
+            exit 1
+          fi
+          if [ -z "${{ secrets.KEY_ALIAS }}" ]; then
+            echo "Error: KEY_ALIAS secret is missing."
+            exit 1
+          fi
+          if [ -z "${{ secrets.EXPECTED_UPLOAD_CERT_SHA256 }}" ]; then
+            echo "Error: EXPECTED_UPLOAD_CERT_SHA256 secret is missing."
+            exit 1
+          fi
+
+      - name: Materialize Keystore
+        run: |
+          mkdir -p /tmp/keystore
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > /tmp/keystore/upload-keystore.jks
+          chmod 600 /tmp/keystore/upload-keystore.jks
+          if [ ! -f /tmp/keystore/upload-keystore.jks ]; then
+            echo "Error: Failed to decode keystore."
+            exit 1
+          fi
+
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Build Consumer Release AAB
+        env:
+          KEYSTORE_PATH: /tmp/keystore/upload-keystore.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: ./gradlew :app:bundleConsumerRelease --no-daemon
+
+      - name: Verify AAB Artifact, Signature, and Certificate Fingerprint
+        run: |
+          set -euo pipefail
+          AAB_PATH="app/build/outputs/bundle/consumerRelease/app-consumer-release.aab"
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "Error: Expected AAB artifact not found at $AAB_PATH"
+            exit 1
+          fi
+
+          echo "Verifying JAR signature via jarsigner..."
+          jarsigner -verify -verbose -certs "$AAB_PATH"
+
+          echo "Extracting and verifying exact certificate SHA-256 fingerprint..."
+          python3 -c "
+          import subprocess, re, sys, os
+
+          expected_raw = os.environ.get('EXPECTED_UPLOAD_CERT_SHA256', '').strip()
+          expected_fp = re.sub(r'[^0-9A-Fa-f]', '', expected_raw).upper()
+
+          if len(expected_fp) != 64:
+              print(f'Error: EXPECTED_UPLOAD_CERT_SHA256 is malformed or invalid (length {len(expected_fp)}, expected 64 hex characters).')
+              sys.exit(1)
+
+          aab_path = 'app/build/outputs/bundle/consumerRelease/app-consumer-release.aab'
+          cmd = ['jarsigner', '-verify', '-verbose', '-certs', aab_path]
+          result = subprocess.run(cmd, capture_output=True, text=True)
+          if result.returncode != 0:
+              print(f'Error: jarsigner verification failed with exit code {result.returncode}')
+              print(result.stdout)
+              print(result.stderr)
+              sys.exit(1)
+
+          found_fps = set()
+          for line in result.stdout.splitlines():
+              if 'SHA256 fingerprint:' in line:
+                  parts = line.split('SHA256 fingerprint:')
+                  if len(parts) > 1:
+                      raw_fp = parts[1].strip()
+                      norm_fp = re.sub(r'[^0-9A-Fa-f]', '', raw_fp).upper()
+                      if len(norm_fp) == 64:
+                          found_fps.add(norm_fp)
+
+          print(f'Found signer SHA-256 fingerprints: {found_fps}')
+          if not found_fps:
+              print('Error: No valid SHA-256 signer fingerprints found in jarsigner output.')
+              sys.exit(1)
+
+          if expected_fp not in found_fps:
+              print(f'Error: Expected upload certificate fingerprint ({expected_fp}) did not match any AAB signer fingerprint ({found_fps})!')
+              sys.exit(1)
+
+          print('Exact certificate SHA-256 fingerprint verification PASSED successfully!')
+          "
+        env:
+          EXPECTED_UPLOAD_CERT_SHA256: ${{ secrets.EXPECTED_UPLOAD_CERT_SHA256 }}
+
+      - name: Verify Asset Pack and Model Integrity
+        run: |
+          python3 -c "
+          import zipfile, hashlib, sys
+
+          aab_path = 'app/build/outputs/bundle/consumerRelease/app-consumer-release.aab'
+          expected = {
+              'assets/models/tinyclip_vision.onnx': (34105241, 'b78e25e17397f1d2f64e1da80c70bd922fd5bc4a2bfede31465c6f6913e3389e'),
+              'assets/models/tinyclip_text.onnx': (61020224, '83fc955313aa7b09d7c4beca940d563719c3086dad0fe367f28a14aa5b2aee72')
+          }
+
+          with zipfile.ZipFile(aab_path, 'r') as z:
+              namelist = z.namelist()
+              pack_present = any('model_pack' in name for name in namelist)
+              print('Model Pack asset pack present in AAB:', pack_present)
+              if not pack_present:
+                  print('Error: model_pack asset pack missing from AAB!')
+                  sys.exit(1)
+
+              for asset, (exp_size, exp_sha) in expected.items():
+                  matching = [n for n in namelist if n.endswith(asset.split('/')[-1])]
+                  if not matching:
+                      print(f'Error: Asset {asset} not found in AAB!')
+                      sys.exit(1)
+
+                  for match in matching:
+                      data = z.read(match)
+                      size = len(data)
+                      sha = hashlib.sha256(data).hexdigest()
+                      print(f'Found {match}: size={size}, sha256={sha}')
+                      if size == exp_size and sha == exp_sha:
+                        print(f'-> {match} PASSED validation.')
+                        break
+                  else:
+                      print(f'Error: No matching asset for {asset} passed size and SHA-256 checks.')
+                      sys.exit(1)
+          print('All AAB asset pack and model integrity checks PASSED successfully!')
+          "
+
+      - name: Upload AAB Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consumer-release-aab
+          path: app/build/outputs/bundle/consumerRelease/app-consumer-release.aab
+
+      - name: Cleanup Keystore Material
+        if: always()
+        run: rm -rf /tmp/keystore
