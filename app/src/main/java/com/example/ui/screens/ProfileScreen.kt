@@ -502,12 +502,6 @@ fun ProfileScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            AuraSectionHeader(
-                title = "Profile",
-                subtitle = "Your intelligence profile",
-                modifier = Modifier.statusBarsPadding()
-            )
-
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val isLandscape = this.maxWidth > this.maxHeight
                 

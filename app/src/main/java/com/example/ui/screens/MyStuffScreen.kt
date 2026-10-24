@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import com.example.data.MediaItem
 import com.example.data.MediaRepository
+import com.example.ui.components.AuraSectionHeader
 import com.example.ui.theme.*
 
 enum class MyStuffTab(val title: String) {
@@ -53,12 +54,20 @@ fun MyStuffScreen(
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(initialTab) }
 
+    val (headerTitle, headerSubtitle) = when (selectedTab) {
+        MyStuffTab.PROFILE -> "Profile" to "Your Intelligence Profile"
+        MyStuffTab.COLLECTIONS -> "Collections" to "Smart groups and archives"
+        MyStuffTab.SAVED -> "Saved" to "All of your saved items"
+        MyStuffTab.RECENTLY_WATCHED -> "Recently Watched" to "Your watch history"
+        MyStuffTab.SETTINGS -> "Settings" to "Preferences and app configuration"
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // My Stuff Top Bar Selector
+        // Dynamic Section Header & Controls Top Bar
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -69,196 +78,192 @@ fun MyStuffScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = AuraSpacing.M, vertical = AuraSpacing.S)
             ) {
-                Text(
-                    text = "Profile",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Your Intelligence Profile",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                AuraSectionHeader(
+                    title = headerTitle,
+                    subtitle = headerSubtitle
                 )
 
-                Spacer(modifier = Modifier.height(AuraSpacing.S))
-
-                // Primary Navigation Row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(AuraSpacing.S)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = AuraSpacing.M, vertical = AuraSpacing.S)
                 ) {
-                    MyStuffTab.entries.forEach { tab ->
-                        val isSelected = selectedTab == tab
-                        Surface(
-                            onClick = { selectedTab = tab },
-                            shape = RoundedCornerShape(AuraSpacing.S),
-                            color = if (isSelected) DiscoveryViolet.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface,
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = 1.dp,
-                                brush = if (isSelected) DiscoveryGradient else androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outlineVariant)
-                            ),
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(horizontal = 12.dp),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
+                    val scanProgress by repository.scanProgress.collectAsStateWithLifecycle()
+                    val coroutineScope = rememberCoroutineScope()
+                    val context = LocalContext.current
+
+                    Button(
+                        onClick = {
+                            if (!scanProgress.isScanning) {
+                                coroutineScope.launch {
+                                    repository.scanLocalMedia(context, isManual = true)
+                                }
+                            }
+                        },
+                        enabled = !scanProgress.isScanning,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(AuraSpacing.S),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = DiscoveryViolet,
+                            contentColor = AuraCrispWhite
+                        )
+                    ) {
+                        if (scanProgress.isScanning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = AuraCrispWhite,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Scanning Media...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Text(text = "Scan New Media", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (scanProgress.isComplete && scanProgress.isManual) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Scan complete: ${scanProgress.discoveredCount} new items discovered.",
+                            fontSize = 11.sp,
+                            color = AuraMutedSlate
+                        )
+                    } else if (scanProgress.errorCode != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Scan failed: ${scanProgress.errorCode}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    // Visual Index indicator below Scan New Media
+                    val visualReadiness by repository.observeVisualIndexReadiness().collectAsStateWithLifecycle(null)
+                    visualReadiness?.let { readiness ->
+                        Spacer(modifier = Modifier.height(AuraSpacing.S))
+                        com.example.ui.components.VisualIndexReadinessPill(
+                            readiness = readiness,
+                            onRetryClick = { repository.retryFailedEnrichment() },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(AuraSpacing.S))
+
+                    // Primary Navigation Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AuraSpacing.S)
+                    ) {
+                        MyStuffTab.entries.forEach { tab ->
+                            val isSelected = selectedTab == tab
+                            Surface(
+                                onClick = { selectedTab = tab },
+                                shape = RoundedCornerShape(AuraSpacing.S),
+                                color = if (isSelected) DiscoveryViolet.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 1.dp,
+                                    brush = if (isSelected) DiscoveryGradient else androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outlineVariant)
+                                ),
+                                modifier = Modifier.height(32.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 12.dp),
+                                    contentAlignment = androidx.compose.ui.Alignment.Center
                                 ) {
-                                    if (tab == MyStuffTab.SAVED) {
-                                        Icon(
-                                            imageVector = if (isSelected) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                                            contentDescription = "Saved",
-                                            tint = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    } else if (tab == MyStuffTab.RECENTLY_WATCHED) {
-                                        Icon(
-                                            imageVector = if (isSelected) Icons.Filled.History else Icons.Outlined.History,
-                                            contentDescription = "Recently Watched",
-                                            tint = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(14.dp)
+                                    Row(
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (tab == MyStuffTab.SAVED) {
+                                            Icon(
+                                                imageVector = if (isSelected) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                                contentDescription = "Saved",
+                                                tint = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        } else if (tab == MyStuffTab.RECENTLY_WATCHED) {
+                                            Icon(
+                                                imageVector = if (isSelected) Icons.Filled.History else Icons.Outlined.History,
+                                                contentDescription = "Recently Watched",
+                                                tint = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                        Text(
+                                            text = tab.title,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    Text(
-                                        text = tab.title,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) DiscoveryViolet else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(AuraSpacing.XS))
+                    Spacer(modifier = Modifier.height(AuraSpacing.XS))
 
-                // Second Navigation Row: Liked and Aura Moments
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(AuraSpacing.S)
-                ) {
-                    Surface(
-                        onClick = { onNavigateToFavorites() },
-                        shape = RoundedCornerShape(AuraSpacing.S),
-                        color = MaterialTheme.colorScheme.surface,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier.height(32.dp)
+                    // Second Navigation Row: Liked and Aura Moments
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AuraSpacing.S)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        Surface(
+                            onClick = { onNavigateToFavorites() },
+                            shape = RoundedCornerShape(AuraSpacing.S),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.height(32.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Favorite,
-                                contentDescription = "Liked",
-                                tint = DiscoveryViolet,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = "Liked",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    Surface(
-                        onClick = { onLaunchAuraMoments() },
-                        shape = RoundedCornerShape(AuraSpacing.S),
-                        color = MaterialTheme.colorScheme.surface,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "Aura Moments",
-                                tint = DiscoveryViolet,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = "Aura Moments",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
-
-                // Move Visual Index indicator directly below the Profile button and above the Profile text
-                val visualReadiness by repository.observeVisualIndexReadiness().collectAsStateWithLifecycle(null)
-                visualReadiness?.let { readiness ->
-                    Spacer(modifier = Modifier.height(AuraSpacing.S))
-                    com.example.ui.components.VisualIndexReadinessPill(
-                        readiness = readiness,
-                        onRetryClick = { repository.retryFailedEnrichment() },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                val scanProgress by repository.scanProgress.collectAsStateWithLifecycle()
-                val coroutineScope = rememberCoroutineScope()
-                val context = LocalContext.current
-
-                Spacer(modifier = Modifier.height(AuraSpacing.S))
-
-                Button(
-                    onClick = {
-                        if (!scanProgress.isScanning) {
-                            coroutineScope.launch {
-                                repository.scanLocalMedia(context, isManual = true)
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Favorite,
+                                    contentDescription = "Liked",
+                                    tint = DiscoveryViolet,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Liked",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
-                    },
-                    enabled = !scanProgress.isScanning,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(AuraSpacing.S),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = DiscoveryViolet,
-                        contentColor = AuraCrispWhite
-                    )
-                ) {
-                    if (scanProgress.isScanning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color = AuraCrispWhite,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Scanning Media...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    } else {
-                        Text(text = "Scan New Media", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
 
-                if (scanProgress.isComplete && scanProgress.isManual) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Scan complete: ${scanProgress.discoveredCount} new items discovered.",
-                        fontSize = 11.sp,
-                        color = AuraMutedSlate
-                    )
-                } else if (scanProgress.errorCode != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Scan failed: ${scanProgress.errorCode}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.error
-                    )
+                        Surface(
+                            onClick = { onLaunchAuraMoments() },
+                            shape = RoundedCornerShape(AuraSpacing.S),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Aura Moments",
+                                    tint = DiscoveryViolet,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Aura Moments",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
