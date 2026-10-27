@@ -31,14 +31,14 @@ interface SemanticRepresentationDao {
     @Query("SELECT * FROM semantic_representations WHERE mediaId = :mediaId")
     fun observeForMedia(mediaId: String): Flow<List<SemanticRepresentationEntity>>
 
-    @Query("SELECT * FROM semantic_representations WHERE representationType = :type AND modelId = :modelId AND modelVersion = :version")
+    @Query("SELECT s.* FROM semantic_representations s INNER JOIN media_items m ON s.mediaId = m.id WHERE m.isDeleted = 0 AND s.representationType = :type AND s.modelId = :modelId AND s.modelVersion = :version")
     suspend fun getCompatibleRepresentations(
         type: String,
         modelId: String,
         version: Int
     ): List<SemanticRepresentationEntity>
 
-    @Query("SELECT * FROM semantic_representations WHERE representationType = :type AND modelId = :modelId AND modelVersion = :version")
+    @Query("SELECT s.* FROM semantic_representations s INNER JOIN media_items m ON s.mediaId = m.id WHERE m.isDeleted = 0 AND s.representationType = :type AND s.modelId = :modelId AND s.modelVersion = :version")
     fun observeCompatibleRepresentations(
         type: String,
         modelId: String,

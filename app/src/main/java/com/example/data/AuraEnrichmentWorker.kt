@@ -187,7 +187,9 @@ class AuraEnrichmentWorker(
         return when (result) {
             is EmbeddingResult.Success -> {
                 repo.saveRepresentation(result.representation)
-                repository.semanticCandidateRetriever?.onRepresentationAdded(result.representation)
+                if (repository.getMediaItemById(entity.id) != null) {
+                    repository.semanticCandidateRetriever?.onRepresentationAdded(result.representation)
+                }
                 ModalityResult.SUCCESS
             }
             is EmbeddingResult.Failure -> ModalityResult.FAILURE

@@ -513,7 +513,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     searchFeedbackRepository = SearchFeedbackRepository(db.searchFeedbackDao(), scope)
                     val wm = try { androidx.work.WorkManager.getInstance(context) } catch (_: Throwable) { null }
                     conversionQueueRepository = ConversionQueueRepository(db.conversionJobDao(), db.userPreferenceDao(), wm)
-                    semanticRepresentationRepository = RoomSemanticRepresentationRepository(db.semanticRepresentationDao())
+                    semanticRepresentationRepository = RoomSemanticRepresentationRepository(db.semanticRepresentationDao(), dispatcher)
                     try {
                         initAI(context)
                     } catch (e: Exception) {
@@ -1407,9 +1407,20 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         deleteMediaItem(id)
     }
 
-    fun deleteMediaItem(id: String) {
-        updateMediaItemsState { it.filterNot { it.id == id } }
-        scope.launch { database?.mediaDao()?.deleteById(id); deleteSemanticDataForMedia(id) }
+    suspend fun deleteMediaItemSuspend(id: String) {
+        updateMediaItemsState { list -> list.filterNot { it.id == id } }
+        try {
+            database?.mediaDao()?.deleteById(id)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e("MediaRepository", "Error deleting media entity $id from DB", e)
+        }
+        try {
+            deleteSemanticDataForMedia(id)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e("MediaRepository", "Error deleting semantic data for $id", e)
+        }
         _activePlaylist.update { p -> if (p == null) null else {
             val list = p.items.filterNot { it.id == id }
             if (list.isEmpty()) { _isPlayerActive.value = false; null } else {
@@ -1445,6 +1456,61 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             refreshPairwiseCandidatePoolAndSelectNext(forceNextPair = true)
         } else if (_compareSelectionSession.value.isActive) {
             refreshPairwiseCandidatePoolAndSelectNext(forceNextPair = true)
+        }
+    }
+
+    fun deleteMediaItem(id: String) {
+        updateMediaItemsState { list -> list.filterNot { it.id == id } }
+        _activePlaylist.update { p -> if (p == null) null else {
+            val list = p.items.filterNot { it.id == id }
+            if (list.isEmpty()) { _isPlayerActive.value = false; null } else {
+                val idx = if (p.authoritativeMediaId == id) p.currentIndex.coerceAtMost(list.size - 1) else list.indexOfFirst { it.id == p.authoritativeMediaId }.let { if (it != -1) it else p.currentIndex.coerceAtMost(list.size - 1) }
+                p.copy(items = list, currentIndex = idx, authoritativeMediaId = list.getOrNull(idx)?.id)
+            }
+        }}
+
+        if (_compareSelectionSession.value.isActive) {
+            _compareSelectionSession.update {
+                it.copy(
+                    selectedIds = it.selectedIds - id,
+                    originalCount = (it.originalCount - 1).coerceAtLeast(0)
+                )
+            }
+        }
+
+        val currentPair = _pairwiseState.value
+        val isPairAffected = currentPair.optionA.id == id || currentPair.optionB.id == id
+
+        if (isPairAffected) {
+            synchronized(pairwiseLock) {
+                if (currentPair.optionA.id.isNotEmpty()) recentItemIds.add(0, currentPair.optionA.id)
+                if (currentPair.optionB.id.isNotEmpty()) recentItemIds.add(0, currentPair.optionB.id)
+                if (currentPair.optionA.id.isNotEmpty() && currentPair.optionB.id.isNotEmpty()) {
+                    recentPairs.add(0, currentPair.optionA.id to currentPair.optionB.id)
+                }
+                while (recentItemIds.size > 20) { recentItemIds.removeAt(recentItemIds.size - 1) }
+                while (recentPairs.size > 10) { recentPairs.removeAt(recentPairs.size - 1) }
+            }
+            _pairwiseState.value = PairwiseComparison("p_empty", currentPair.roundNumber, 50, emptyMediaItem, emptyMediaItem)
+            preFetchedPair = null
+            refreshPairwiseCandidatePoolAndSelectNext(forceNextPair = true)
+        } else if (_compareSelectionSession.value.isActive) {
+            refreshPairwiseCandidatePoolAndSelectNext(forceNextPair = true)
+        }
+
+        scope.launch {
+            try {
+                database?.mediaDao()?.deleteById(id)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.e("MediaRepository", "Error deleting media entity $id from DB", e)
+            }
+            try {
+                deleteSemanticDataForMedia(id)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                Log.e("MediaRepository", "Error deleting semantic data for $id", e)
+            }
         }
     }
 
@@ -1870,7 +1936,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
         entities.forEach { entity ->
             try {
-                val item = entity.toMediaItem()
+                // Authoritative active-item validation: re-check in-memory state and DB to prevent stale background re-indexing of deleted media
+                val isStillActive = _mediaItems.value.any { it.id == entity.id }
+                val currentDbEntity = database?.mediaDao()?.getMediaById(entity.id)
+                if (!isStillActive || currentDbEntity == null || currentDbEntity.isDeleted) {
+                    Log.d("MediaRepository", "Skipping semantic indexing for deleted or removed entity ${entity.id}")
+                    return@forEach
+                }
+                val item = currentDbEntity.toMediaItem()
                 sIdx.indexMediaItem(item)
                 vIdx.indexVisual(ctx, item)
             } catch (e: Exception) {
@@ -1880,8 +1953,18 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         }
     }
     private suspend fun deleteSemanticDataForMedia(id: String) { 
-        semanticRepresentationRepository?.deleteForMedia(id)
-        semanticCandidateRetriever?.onMediaRemoved(id)
+        try {
+            semanticRepresentationRepository?.deleteForMedia(id)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e("MediaRepository", "Error deleting semantic representations for $id from repository", e)
+        }
+        try {
+            semanticCandidateRetriever?.onMediaRemoved(id)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e("MediaRepository", "Error removing $id from candidate retriever", e)
+        }
     }
     
     private fun MediaItem.toEntity(): MediaEntity = MediaEntity(id = id, title = title, mediaType = mediaType, year = year, duration = duration, genre = genre, imageUrl = imageUrl, gradientColorsJson = gradientColors.joinToString(","), rating = rating, isFavorite = isFavorite, progress = progress, progressText = progressText, category = category, aiSummary = aiSummary, moodTagsJson = moodTags.joinToString(","), itemCount = itemCount, eloRating = eloRating, uriPath = uriPath, dateAdded = dateAdded, dateModified = dateModified, sizeBytes = sizeBytes, durationMs = durationMs, width = width, height = height, lastViewedTimestamp = lastViewedTimestamp, playCount = viewCount, exposureCount = exposureCount, lastExposedTimestamp = lastExposedTimestamp, contentHash = contentHash, parentContentId = parentContentId, isDeleted = isDeleted, compatibilityStatus = compatibilityStatus.name, containerFormat = containerFormat, videoCodec = videoCodec, audioCodec = audioCodec, compatibilityReason = compatibilityReason, conversionStatus = conversionStatus.name, convertedUri = convertedUri ?: "", lastCompatibilityCheckTimestamp = lastCompatibilityCheckTimestamp, selectionReason = if (isEphemeralReason(selectionReason)) null else selectionReason, creatorId = creatorId, creatorName = creatorName, sourcePlatform = sourcePlatform, replacedByMediaId = replacedByMediaId)

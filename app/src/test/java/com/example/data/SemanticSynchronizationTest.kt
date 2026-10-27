@@ -47,7 +47,7 @@ class SemanticSynchronizationTest {
         repository.setApplicationContextForTesting(context)
         repository.setDatabaseForTesting(database)
 
-        semanticRepo = RoomSemanticRepresentationRepository(database.semanticRepresentationDao())
+        semanticRepo = RoomSemanticRepresentationRepository(database.semanticRepresentationDao(), testDispatcher)
         fakeEmbeddingProvider = FakeEmbeddingProvider(descriptor)
         
         retriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
@@ -124,7 +124,7 @@ class SemanticSynchronizationTest {
         assertEquals(1, activeRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
 
         // Delete via repository
-        repository.deleteMediaItem("m1")
+        repository.deleteMediaItemSuspend("m1")
         advanceUntilIdle()
         
         // Verify index is empty

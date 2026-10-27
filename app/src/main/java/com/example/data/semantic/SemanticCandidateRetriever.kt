@@ -54,6 +54,10 @@ class DefaultSemanticCandidateRetriever(
         descriptor: EmbeddingModelDescriptor
     ) = withContext(dispatcher) {
         val key = getIndexKey(type, descriptor)
+        val existingIndex = indices[key]
+        if (existingIndex != null && existingIndex.size > 0) {
+            return@withContext
+        }
         
         // AURA SYNC: Atomically check/create the initialization job in the persistent scope
         val deferred = initializationJobs.computeIfAbsent(key) {
@@ -70,7 +74,11 @@ class DefaultSemanticCandidateRetriever(
             }
         }
         
-        deferred.await()
+        try {
+            deferred.await()
+        } finally {
+            initializationJobs.remove(key)
+        }
     }
 
     override suspend fun retrieveCandidates(

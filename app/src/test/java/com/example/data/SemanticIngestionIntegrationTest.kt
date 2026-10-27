@@ -51,7 +51,7 @@ class SemanticIngestionIntegrationTest {
         repository.setApplicationContextForTesting(context)
         repository.setDatabaseForTesting(database)
 
-        val semanticRepo = RoomSemanticRepresentationRepository(database.semanticRepresentationDao())
+        val semanticRepo = RoomSemanticRepresentationRepository(database.semanticRepresentationDao(), testDispatcher)
         fakeEmbeddingProvider = FakeEmbeddingProvider(descriptor)
         
         retriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)

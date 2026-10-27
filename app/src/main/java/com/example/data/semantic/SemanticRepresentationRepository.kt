@@ -2,6 +2,7 @@ package com.example.data.semantic
 
 import com.example.data.db.SemanticRepresentationDao
 import com.example.data.db.SemanticRepresentationEntity
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -53,24 +54,25 @@ interface SemanticRepresentationRepository {
  * Production implementation of [SemanticRepresentationRepository] backed by SQLCipher Room DAO.
  */
 class RoomSemanticRepresentationRepository(
-    private val dao: SemanticRepresentationDao
+    private val dao: SemanticRepresentationDao,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : SemanticRepresentationRepository {
 
-    override suspend fun saveRepresentation(representation: SemanticRepresentation) = withContext(Dispatchers.IO) {
+    override suspend fun saveRepresentation(representation: SemanticRepresentation) = withContext(ioDispatcher) {
         val entity = toEntity(representation)
         dao.upsert(entity)
     }
 
-    override suspend fun saveRepresentations(representations: List<SemanticRepresentation>) = withContext(Dispatchers.IO) {
+    override suspend fun saveRepresentations(representations: List<SemanticRepresentation>) = withContext(ioDispatcher) {
         val entities = representations.map { toEntity(it) }
         dao.upsertAll(entities)
     }
 
-    override suspend fun getById(id: String): SemanticRepresentation? = withContext(Dispatchers.IO) {
+    override suspend fun getById(id: String): SemanticRepresentation? = withContext(ioDispatcher) {
         dao.getById(id)?.let { toDomain(it) }
     }
 
-    override suspend fun getForMedia(mediaId: String): List<SemanticRepresentation> = withContext(Dispatchers.IO) {
+    override suspend fun getForMedia(mediaId: String): List<SemanticRepresentation> = withContext(ioDispatcher) {
         dao.getForMedia(mediaId).mapNotNull { toDomainSafe(it) }
     }
 
@@ -83,7 +85,7 @@ class RoomSemanticRepresentationRepository(
     override suspend fun getCompatibleRepresentations(
         type: SemanticRepresentationType,
         descriptor: EmbeddingModelDescriptor
-    ): List<SemanticRepresentation> = withContext(Dispatchers.IO) {
+    ): List<SemanticRepresentation> = withContext(ioDispatcher) {
         dao.getCompatibleRepresentations(
             type = type.name,
             modelId = descriptor.modelId,
@@ -122,7 +124,7 @@ class RoomSemanticRepresentationRepository(
         mediaId: String,
         type: SemanticRepresentationType,
         descriptor: EmbeddingModelDescriptor
-    ): SemanticRepresentation? = withContext(Dispatchers.IO) {
+    ): SemanticRepresentation? = withContext(ioDispatcher) {
         val entity = dao.getSpecificRepresentation(
             mediaId = mediaId,
             type = type.name,
@@ -138,22 +140,22 @@ class RoomSemanticRepresentationRepository(
         }
     }
 
-    override suspend fun getByModel(modelId: String, version: Int): List<SemanticRepresentation> = withContext(Dispatchers.IO) {
+    override suspend fun getByModel(modelId: String, version: Int): List<SemanticRepresentation> = withContext(ioDispatcher) {
         dao.getByModel(modelId, version).mapNotNull { toDomainSafe(it) }
     }
 
-    override suspend fun getByType(type: SemanticRepresentationType): List<SemanticRepresentation> = withContext(Dispatchers.IO) {
+    override suspend fun getByType(type: SemanticRepresentationType): List<SemanticRepresentation> = withContext(ioDispatcher) {
         dao.getByType(type.name).mapNotNull { toDomainSafe(it) }
     }
 
-    override suspend fun count(): Int = withContext(Dispatchers.IO) {
+    override suspend fun count(): Int = withContext(ioDispatcher) {
         dao.count()
     }
 
     override suspend fun countCompatible(
         type: SemanticRepresentationType,
         descriptor: EmbeddingModelDescriptor
-    ): Int = withContext(Dispatchers.IO) {
+    ): Int = withContext(ioDispatcher) {
         dao.countCompatible(type.name, descriptor.modelId, descriptor.modelVersion)
     }
 
@@ -161,39 +163,39 @@ class RoomSemanticRepresentationRepository(
         mediaId: String,
         type: SemanticRepresentationType,
         descriptor: EmbeddingModelDescriptor
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = withContext(ioDispatcher) {
         dao.exists(mediaId, type.name, descriptor.modelId, descriptor.modelVersion)
     }
 
-    override suspend fun deleteById(id: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteById(id: String) = withContext(ioDispatcher) {
         dao.deleteById(id)
     }
 
-    override suspend fun deleteForMedia(mediaId: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteForMedia(mediaId: String) = withContext(ioDispatcher) {
         dao.deleteForMedia(mediaId)
     }
 
-    override suspend fun deleteByModel(modelId: String, version: Int) = withContext(Dispatchers.IO) {
+    override suspend fun deleteByModel(modelId: String, version: Int) = withContext(ioDispatcher) {
         dao.deleteByModel(modelId, version)
     }
 
-    override suspend fun clearAll() = withContext(Dispatchers.IO) {
+    override suspend fun clearAll() = withContext(ioDispatcher) {
         dao.clearAll()
     }
 
-    override suspend fun saveFrames(frames: List<VideoFrameRepresentation>) = withContext(Dispatchers.IO) {
+    override suspend fun saveFrames(frames: List<VideoFrameRepresentation>) = withContext(ioDispatcher) {
         dao.upsertAllFrames(frames.map { toFrameEntity(it) })
     }
 
-    override suspend fun getFramesForMedia(mediaId: String): List<VideoFrameRepresentation> = withContext(Dispatchers.IO) {
+    override suspend fun getFramesForMedia(mediaId: String): List<VideoFrameRepresentation> = withContext(ioDispatcher) {
         dao.getFramesForMedia(mediaId).map { toFrameDomain(it) }
     }
 
-    override suspend fun getFramesForBatch(mediaIds: List<String>): List<VideoFrameRepresentation> = withContext(Dispatchers.IO) {
+    override suspend fun getFramesForBatch(mediaIds: List<String>): List<VideoFrameRepresentation> = withContext(ioDispatcher) {
         dao.getFramesForBatch(mediaIds).map { toFrameDomain(it) }
     }
 
-    override suspend fun deleteFramesForMedia(mediaId: String) = withContext(Dispatchers.IO) {
+    override suspend fun deleteFramesForMedia(mediaId: String) = withContext(ioDispatcher) {
         dao.deleteFramesForMedia(mediaId)
     }
 
