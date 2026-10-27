@@ -36,7 +36,8 @@ class DefaultSemanticIndexingService(
     internal val embeddingProvider: EmbeddingProvider,
     private val candidateRetriever: SemanticCandidateRetriever,
     private val repository: SemanticRepresentationRepository,
-    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default
+    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default,
+    private val isMediaActive: suspend (String) -> Boolean = { true }
 ) : SemanticIndexingService {
 
     override suspend fun indexMediaItem(item: MediaItem): EmbeddingResult = withContext(dispatcher) {
@@ -61,6 +62,10 @@ class DefaultSemanticIndexingService(
                 existing.sourceDataHash == sourceHash) {
                 
                 android.util.Log.d("SemanticIndexing", "Reusing existing valid embedding for media: ${item.id}")
+                if (!isMediaActive(item.id)) {
+                    android.util.Log.d("SemanticIndexing", "Skipping reuse for media ${item.id} because it was deleted.")
+                    return@withContext EmbeddingResult.Failure(EmbeddingErrorCode.INFERENCE_ERROR, "Media item deleted")
+                }
                 candidateRetriever.onRepresentationAdded(existing)
                 return@withContext EmbeddingResult.Success(existing)
             }
@@ -74,6 +79,10 @@ class DefaultSemanticIndexingService(
 
             // 5. On success, persist and notify retriever for index update
             if (result is EmbeddingResult.Success) {
+                if (!isMediaActive(item.id)) {
+                    android.util.Log.d("SemanticIndexing", "Skipping persistence for media ${item.id} because it was deleted during inference.")
+                    return@withContext EmbeddingResult.Failure(EmbeddingErrorCode.INFERENCE_ERROR, "Media item deleted during inference")
+                }
                 val representation = result.representation.copy(documentVersion = currentDocVersion)
                 repository.saveRepresentation(representation)
                 candidateRetriever.onRepresentationAdded(representation)

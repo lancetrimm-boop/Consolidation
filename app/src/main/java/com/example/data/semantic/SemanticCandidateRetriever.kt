@@ -45,6 +45,9 @@ class DefaultSemanticCandidateRetriever(
     // Tracks ongoing initialization jobs to prevent redundant concurrent reconstructions
     private val initializationJobs = ConcurrentHashMap<String, Deferred<Unit>>()
 
+    // Tracks media IDs removed concurrently during initialization to filter out stale representations
+    private val removedMediaIds = ConcurrentHashMap.newKeySet<String>()
+
     private fun getIndexKey(type: SemanticRepresentationType, descriptor: EmbeddingModelDescriptor): String {
         return "${type.name}:${descriptor.modelId}:${descriptor.modelVersion}:${descriptor.dimensionality}"
     }
@@ -64,12 +67,13 @@ class DefaultSemanticCandidateRetriever(
             scope.async {
                 android.util.Log.d("AuraSemanticTrace", "INDEX_INIT_START key=$key")
                 val representations = repository.getCompatibleRepresentations(type, descriptor)
+                val activeRepresentations = representations.filter { it.mediaId !in removedMediaIds }
                 val index = InMemoryVectorIndex(descriptor, type)
-                index.rebuild(representations)
+                index.rebuild(activeRepresentations)
                 indices[key] = index
-                
-                val typeCount = representations.size
-                val distinctMedia = representations.map { it.mediaId }.distinct().size
+
+                val typeCount = activeRepresentations.size
+                val distinctMedia = activeRepresentations.map { it.mediaId }.distinct().size
                 android.util.Log.i("AuraSemanticTrace", "INDEX_INIT_COMPLETE key=$key persisted=$typeCount distinctMedia=$distinctMedia indexed=${index.size}")
             }
         }
@@ -101,6 +105,7 @@ class DefaultSemanticCandidateRetriever(
     }
 
     override fun onRepresentationAdded(representation: SemanticRepresentation) {
+        if (representation.mediaId in removedMediaIds) return
         val key = getIndexKey(representation.type, representation.modelDescriptor)
         val index = indices[key]
         if (index != null) {
@@ -119,6 +124,7 @@ class DefaultSemanticCandidateRetriever(
     }
 
     override fun onMediaRemoved(mediaId: String) {
+        removedMediaIds.add(mediaId)
         for (index in indices.values) {
             index.removeForMedia(mediaId)
         }

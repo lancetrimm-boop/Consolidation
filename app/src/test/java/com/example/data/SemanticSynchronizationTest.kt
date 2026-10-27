@@ -143,4 +143,133 @@ class SemanticSynchronizationTest {
         }
         override fun close() {}
     }
+
+    @Test(timeout = 10000)
+    fun `test deletion after active media check`() = runTest(testDispatcher) {
+        val activeRetriever = getActiveRetriever()
+        activeRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+
+        val item = MediaEntity(id = "m1", title = "Race Item", mediaType = "PHOTO", uriPath = "/path/1.jpg")
+        database.mediaDao().insert(item)
+
+        val pauseLatch = CompletableDeferred<Unit>()
+        val resumeLatch = CompletableDeferred<Unit>()
+
+        val suspendingProvider = object : EmbeddingProvider {
+            override val descriptor = this@SemanticSynchronizationTest.descriptor
+            override val supportedTypes = setOf(SemanticRepresentationType.CONTENT)
+            override fun isReady() = true
+            override suspend fun generateEmbedding(mediaId: String, input: SemanticInput, sourceDataHash: String): EmbeddingResult {
+                pauseLatch.complete(Unit)
+                resumeLatch.await()
+                return EmbeddingResult.Success(SemanticRepresentation(
+                    id = "rep_$mediaId", mediaId = mediaId, type = SemanticRepresentationType.CONTENT,
+                    modelDescriptor = descriptor, dimensionality = 384,
+                    vector = FloatArray(384) { 0.1f }, sourceDataHash = sourceDataHash
+                ))
+            }
+            override fun close() {}
+        }
+
+        val indexingService = DefaultSemanticIndexingService(suspendingProvider, activeRetriever, semanticRepo, testDispatcher)
+
+        val indexingJob = backgroundScope.launch(testDispatcher) {
+            indexingService.indexMediaItem(item.toMediaItem())
+        }
+
+        pauseLatch.await()
+
+        repository.deleteMediaItemSuspend("m1")
+
+        resumeLatch.complete(Unit)
+        indexingJob.join()
+        advanceUntilIdle()
+
+        val reps = database.semanticRepresentationDao().getByType(SemanticRepresentationType.CONTENT.name)
+        assertTrue("Deleted item representation should not be persisted after concurrent deletion", reps.isEmpty())
+        assertEquals("Candidate index must exclude deleted item", 0, activeRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+    }
+
+    @Test(timeout = 10000)
+    fun `test concurrent index initialization and deletion`() = runTest(testDispatcher) {
+        val item = MediaEntity(id = "m1", title = "Hydration Item", mediaType = "PHOTO", uriPath = "/path/1.jpg")
+        database.mediaDao().insert(item)
+        val rep = SemanticRepresentation(
+            id = "rep_m1", mediaId = "m1", type = SemanticRepresentationType.CONTENT,
+            modelDescriptor = descriptor, dimensionality = 384,
+            vector = FloatArray(384) { 0.1f }, sourceDataHash = "hash"
+        )
+        semanticRepo.saveRepresentation(rep)
+
+        val pauseLatch = CompletableDeferred<Unit>()
+        val resumeLatch = CompletableDeferred<Unit>()
+
+        val pausingRepo = object : SemanticRepresentationRepository by semanticRepo {
+            override suspend fun getCompatibleRepresentations(type: SemanticRepresentationType, descriptor: EmbeddingModelDescriptor): List<SemanticRepresentation> {
+                val list = semanticRepo.getCompatibleRepresentations(type, descriptor)
+                pauseLatch.complete(Unit)
+                resumeLatch.await()
+                return list
+            }
+        }
+
+        val testRetriever = DefaultSemanticCandidateRetriever(pausingRepo, testDispatcher)
+
+        val initJob = backgroundScope.launch(testDispatcher) {
+            testRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+        }
+
+        pauseLatch.await()
+
+        database.mediaDao().deleteById("m1")
+        database.mediaDao().update(item.copy(isDeleted = true))
+
+        resumeLatch.complete(Unit)
+        initJob.join()
+        advanceUntilIdle()
+
+        assertEquals("Candidate index must exclude deleted item even if read during hydration", 0, testRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+    }
+
+    @Test(timeout = 10000)
+    fun `test initialization failure and retry`() = runTest(testDispatcher) {
+        var callCount = 0
+        var failFirst = true
+        val flakyRepo = object : SemanticRepresentationRepository by semanticRepo {
+            override suspend fun getCompatibleRepresentations(type: SemanticRepresentationType, descriptor: EmbeddingModelDescriptor): List<SemanticRepresentation> {
+                callCount++
+                if (failFirst) {
+                    throw RuntimeException("Simulated initialization failure")
+                }
+                return semanticRepo.getCompatibleRepresentations(type, descriptor)
+            }
+        }
+
+        val testRetriever = DefaultSemanticCandidateRetriever(flakyRepo, testDispatcher)
+
+        var exceptionCaught = false
+        try {
+            testRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+        } catch (_: Exception) {
+            exceptionCaught = true
+        }
+        assertTrue("First initialization attempt must throw exception", exceptionCaught)
+        assertEquals(1, callCount)
+
+        val item = MediaEntity(id = "m2", title = "Retry Item", mediaType = "PHOTO", uriPath = "/path/2.jpg")
+        database.mediaDao().insert(item)
+        val rep = SemanticRepresentation(
+            id = "rep_m2", mediaId = "m2", type = SemanticRepresentationType.CONTENT,
+            modelDescriptor = descriptor, dimensionality = 384,
+            vector = FloatArray(384) { 0.1f }, sourceDataHash = "hash"
+        )
+        semanticRepo.saveRepresentation(rep)
+
+        failFirst = false
+        testRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+        advanceUntilIdle()
+
+        assertEquals("Retry attempt must execute successfully", 2, callCount)
+        assertEquals("Index must hydrate successfully after retry", 1, testRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+    }
 }

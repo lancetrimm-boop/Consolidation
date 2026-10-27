@@ -694,7 +694,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             val provider = if (embeddingProvider != null) embeddingProvider!! else MiniLMEmbeddingProvider(engine, tokenizer).also { embeddingProvider = it }
             val retriever = if (semanticCandidateRetriever != null) semanticCandidateRetriever!! else DefaultSemanticCandidateRetriever(semanticRepresentationRepository!!, dispatcher).also { semanticCandidateRetriever = it }
             if (semanticSearchService == null) semanticSearchService = DefaultSemanticSearchService(provider, retriever, dispatcher)
-            if (semanticIndexingService == null) semanticIndexingService = DefaultSemanticIndexingService(provider, retriever, semanticRepresentationRepository!!)
+            if (semanticIndexingService == null) semanticIndexingService = DefaultSemanticIndexingService(provider, retriever, semanticRepresentationRepository!!, dispatcher) { mediaId ->
+                try {
+                    val entity = withContext(dispatcher) { database?.mediaDao()?.getMediaById(mediaId) }
+                    entity != null && !entity.isDeleted
+                } catch (e: Exception) {
+                    true
+                }
+            }
             scope.launch { try { retriever.initializeIndex(provider.descriptor.primaryType, provider.descriptor) } catch (e: Exception) {} }
             val router = RetrievalRouter(ProductionLexicalRetriever(), semanticSearchService as? SemanticRetrievalProvider, null)
             intelligenceCore = AuraIntelligenceCore(this, router, dispatcher = dispatcher)
