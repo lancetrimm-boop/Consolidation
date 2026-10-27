@@ -54,12 +54,7 @@ class SemanticIngestionIntegrationTest {
         val semanticRepo = RoomSemanticRepresentationRepository(database.semanticRepresentationDao())
         fakeEmbeddingProvider = FakeEmbeddingProvider(descriptor)
         
-        // Use test scope for retriever
-        val defaultRetriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
-        runBlocking {
-            defaultRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
-        }
-        retriever = defaultRetriever
+        retriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
 
         val indexingService = DefaultSemanticIndexingService(fakeEmbeddingProvider, retriever, semanticRepo, testDispatcher)
         val mockVisualIndexer: VisualIndexingService = mock {
@@ -106,6 +101,8 @@ class SemanticIngestionIntegrationTest {
 
     @Test(timeout = 10000)
     fun `test processPendingMedia triggers embedding generation and persistence`() = runTest(testDispatcher) {
+        getActiveRetriever().initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+        
         val item = MediaEntity(id = "m1", title = "Sunrise", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         database.mediaDao().insert(item)
         
@@ -124,6 +121,7 @@ class SemanticIngestionIntegrationTest {
 
     @Test(timeout = 10000)
     fun `test semantic failure does not abort media ingestion`() = runTest(testDispatcher) {
+        getActiveRetriever().initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
         fakeEmbeddingProvider.shouldFail = true
         
         val item = MediaEntity(id = "m1", title = "Sunrise", mediaType = "PHOTO", uriPath = "/path/1.jpg")
@@ -146,6 +144,7 @@ class SemanticIngestionIntegrationTest {
 
     @Test(timeout = 10000)
     fun `test multiple items with partial semantic failure`() = runTest(testDispatcher) {
+        getActiveRetriever().initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
         val item1 = MediaEntity(id = "m1", title = "Success", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         val item2 = MediaEntity(id = "m2", title = "Fail", mediaType = "PHOTO", uriPath = "/path/2.jpg")
         database.mediaDao().insert(item1)

@@ -50,12 +50,7 @@ class SemanticSynchronizationTest {
         semanticRepo = RoomSemanticRepresentationRepository(database.semanticRepresentationDao())
         fakeEmbeddingProvider = FakeEmbeddingProvider(descriptor)
         
-        // Provide test dispatcher to retriever for determinism
-        val defaultRetriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
-        runBlocking {
-            defaultRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
-        }
-        retriever = defaultRetriever
+        retriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
 
         val indexingService = DefaultSemanticIndexingService(fakeEmbeddingProvider, retriever, semanticRepo, testDispatcher)
         val mockVisualIndexer: VisualIndexingService = mock {
@@ -99,6 +94,7 @@ class SemanticSynchronizationTest {
 
     @Test(timeout = 10000)
     fun `test addition synchronization`() = runTest(testDispatcher) {
+        getActiveRetriever().initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
         val item = MediaEntity(id = "m1", title = "New Image", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         database.mediaDao().insert(item)
         
@@ -116,6 +112,7 @@ class SemanticSynchronizationTest {
 
     @Test(timeout = 10000)
     fun `test deletion synchronization`() = runTest(testDispatcher) {
+        getActiveRetriever().initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
         // Setup initial item
         val item = MediaEntity(id = "m1", title = "To Delete", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         database.mediaDao().insert(item)

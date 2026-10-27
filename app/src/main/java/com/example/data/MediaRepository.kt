@@ -691,10 +691,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         try {
             val engine = try { OnnxRuntimeMiniLMInferenceEngine(modelPath = com.example.util.ModelAssetLoader.getLocalPath(context, "models/all-minilm-l6-v2.onnx")) } catch (e: Exception) { LocalMiniLMInferenceEngine() }
             val tokenizer = try { BertWordPieceTokenizer.fromVocabText(context.assets.open("models/vocab.txt").use { it.bufferedReader().readText() }) } catch (e: Exception) { BertWordPieceTokenizer() }
-            val provider = MiniLMEmbeddingProvider(engine, tokenizer); embeddingProvider = provider
-            val retriever = DefaultSemanticCandidateRetriever(semanticRepresentationRepository!!, dispatcher); semanticCandidateRetriever = retriever
-            semanticSearchService = DefaultSemanticSearchService(provider, retriever, dispatcher)
-            semanticIndexingService = DefaultSemanticIndexingService(provider, retriever, semanticRepresentationRepository!!)
+            val provider = if (embeddingProvider != null) embeddingProvider!! else MiniLMEmbeddingProvider(engine, tokenizer).also { embeddingProvider = it }
+            val retriever = if (semanticCandidateRetriever != null) semanticCandidateRetriever!! else DefaultSemanticCandidateRetriever(semanticRepresentationRepository!!, dispatcher).also { semanticCandidateRetriever = it }
+            if (semanticSearchService == null) semanticSearchService = DefaultSemanticSearchService(provider, retriever, dispatcher)
+            if (semanticIndexingService == null) semanticIndexingService = DefaultSemanticIndexingService(provider, retriever, semanticRepresentationRepository!!)
             scope.launch { try { retriever.initializeIndex(provider.descriptor.primaryType, provider.descriptor) } catch (e: Exception) {} }
             val router = RetrievalRouter(ProductionLexicalRetriever(), semanticSearchService as? SemanticRetrievalProvider, null)
             intelligenceCore = AuraIntelligenceCore(this, router, dispatcher = dispatcher)
@@ -720,8 +720,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 }
                 mobileClipTextProvider = TinyCLIPTextEmbeddingProvider(textEngine, clipTokenizer)
 
-                visualIndexingService = DefaultVisualIndexingService(mobileCLIPProvider!!, retriever, semanticRepresentationRepository!!)
-                scope.launch { try { visualIndexingService?.initializeIndex() } catch (e: Exception) {} }
+                if (visualIndexingService == null) {
+                    visualIndexingService = DefaultVisualIndexingService(mobileCLIPProvider!!, retriever, semanticRepresentationRepository!!)
+                    scope.launch { try { visualIndexingService?.initializeIndex() } catch (e: Exception) {} }
+                }
                 visualContextEngine = com.example.data.visual.VisualContextEngine(this, mobileCLIPProvider, semanticRepresentationRepository, semanticCandidateRetriever)
                 router.visualProvider = DefaultMobileCLIPVisualRetriever(DefaultSemanticSearchService(mobileClipTextProvider!!, retriever))
                 hybridSearchEngine = DefaultHybridSearchEngine(intelligenceCore!!)
@@ -1877,7 +1879,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             }
         }
     }
-    private suspend fun deleteSemanticDataForMedia(id: String) { semanticRepresentationRepository?.deleteForMedia(id) }
+    private suspend fun deleteSemanticDataForMedia(id: String) { 
+        semanticRepresentationRepository?.deleteForMedia(id)
+        semanticCandidateRetriever?.onMediaRemoved(id)
+    }
     
     private fun MediaItem.toEntity(): MediaEntity = MediaEntity(id = id, title = title, mediaType = mediaType, year = year, duration = duration, genre = genre, imageUrl = imageUrl, gradientColorsJson = gradientColors.joinToString(","), rating = rating, isFavorite = isFavorite, progress = progress, progressText = progressText, category = category, aiSummary = aiSummary, moodTagsJson = moodTags.joinToString(","), itemCount = itemCount, eloRating = eloRating, uriPath = uriPath, dateAdded = dateAdded, dateModified = dateModified, sizeBytes = sizeBytes, durationMs = durationMs, width = width, height = height, lastViewedTimestamp = lastViewedTimestamp, playCount = viewCount, exposureCount = exposureCount, lastExposedTimestamp = lastExposedTimestamp, contentHash = contentHash, parentContentId = parentContentId, isDeleted = isDeleted, compatibilityStatus = compatibilityStatus.name, containerFormat = containerFormat, videoCodec = videoCodec, audioCodec = audioCodec, compatibilityReason = compatibilityReason, conversionStatus = conversionStatus.name, convertedUri = convertedUri ?: "", lastCompatibilityCheckTimestamp = lastCompatibilityCheckTimestamp, selectionReason = if (isEphemeralReason(selectionReason)) null else selectionReason, creatorId = creatorId, creatorName = creatorName, sourcePlatform = sourcePlatform, replacedByMediaId = replacedByMediaId)
     
