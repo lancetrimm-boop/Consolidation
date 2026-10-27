@@ -34,6 +34,7 @@ class MyStuffScreenTest {
         whenever(repository.signatureStyleProfile).thenReturn(MutableStateFlow(SignatureStyleProfile(emptyList(), emptyList())))
         whenever(repository.mediaItems).thenReturn(MutableStateFlow(emptyList()))
         whenever(repository.intelligenceStats).thenReturn(MutableStateFlow(IntelligenceStats()))
+        whenever(repository.scanProgress).thenReturn(MutableStateFlow(ScanProgressState()))
         
         val searchFeedbackRepository = mock<SearchFeedbackRepository>()
         whenever(repository.searchFeedbackRepository).thenReturn(searchFeedbackRepository)

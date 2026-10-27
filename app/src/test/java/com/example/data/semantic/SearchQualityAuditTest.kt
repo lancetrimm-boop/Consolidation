@@ -94,6 +94,7 @@ class SearchQualityAuditTest {
         minilmEngine.close()
 
         // --- 2. MobileCLIP (Text-to-Visual) Audit ---
+        org.junit.Assume.assumeTrue("MobileCLIP model must exist for audit", File(getAssetPath(clipTextPath)).exists())
         val clipTextEngine = OnnxRuntimeMobileCLIPTextInferenceEngine(modelPath = getAssetPath(clipTextPath))
         val clipVocab = File(getAssetPath(clipVocabPath)).readText()
         val clipMerges = File(getAssetPath(clipMergesPath)).readText()

@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 class ConversionQueueRepository(
     private val dao: com.example.data.db.ConversionJobDao,
     private val prefDao: com.example.data.db.UserPreferenceDao,
-    private val workManager: WorkManager
+    private val workManager: WorkManager? = null
 ) {
 
     fun observeAllJobs(): Flow<List<ConversionJobEntity>> = dao.observeAllJobs()
@@ -68,7 +68,7 @@ class ConversionQueueRepository(
                 .build())
             .build()
 
-        workManager.enqueueUniqueWork(
+        workManager?.enqueueUniqueWork(
             "conversion_queue",
             ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
@@ -86,7 +86,7 @@ class ConversionQueueRepository(
             .build())
             .build()
 
-        workManager.enqueueUniquePeriodicWork(
+        workManager?.enqueueUniquePeriodicWork(
             "original_media_cleanup",
             ExistingPeriodicWorkPolicy.KEEP,
             cleanupRequest
@@ -126,7 +126,7 @@ class ConversionQueueRepository(
             .setInputData(data)
             .build()
         
-        workManager.enqueueUniqueWork(
+        workManager?.enqueueUniqueWork(
             "manual_cleanup_$jobId",
             ExistingWorkPolicy.REPLACE,
             request

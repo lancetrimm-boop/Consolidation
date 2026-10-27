@@ -51,7 +51,11 @@ class MediaRepositorySavedLearningTest {
             dateAdded = System.currentTimeMillis(),
             moodTagsJson = "[\"vibrant\",\"warm\"]"
         )
-        runBlocking { database.mediaDao().insert(entity) }
+        runBlocking { 
+            database.mediaDao().insert(entity)
+            val item = entity.toMediaItem()
+            repository.setMediaItemsForTesting(repository.mediaItems.value + item)
+        }
     }
 
     @Test

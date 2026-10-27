@@ -10,7 +10,7 @@ class ChannelRegistryTest {
         "ME_TV",
         "FAVORITES",
         "REDISCOVER",
-        "CONTINUE",
+        "FRESH_ARRIVALS",
         "MOOD"
     )
 

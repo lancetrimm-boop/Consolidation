@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -35,6 +36,12 @@ class PairwiseVotePersistenceTest {
         
         repository = MediaRepository(testDispatcher)
         repository.setDatabaseForTesting(database)
+    }
+
+    @After
+    fun tearDown() {
+        try { repository.close() } catch (_: Exception) {}
+        try { database.close() } catch (_: Exception) {}
     }
 
     private fun createMediaItem(id: String): MediaItem {
@@ -85,7 +92,8 @@ class PairwiseVotePersistenceTest {
         val initialRound = repository.compareSelectionSession.value.roundNumber
         assertEquals(1, initialRound)
 
-        // Close database to simulate persistence failure
+        // Close exposure repository and database to simulate persistence failure safely
+        repository.exposureRepository?.close()
         database.close()
 
         // Attempt to vote

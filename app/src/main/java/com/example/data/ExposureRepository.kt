@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -148,5 +149,9 @@ class ExposureRepository(
      */
     suspend fun cleanupEventsOlderThan(beforeTimestampMs: Long): Int = withContext(dispatcher) {
         exposureEventDao.deleteEventsOlderThan(beforeTimestampMs)
+    }
+
+    fun close() {
+        scope.cancel()
     }
 }

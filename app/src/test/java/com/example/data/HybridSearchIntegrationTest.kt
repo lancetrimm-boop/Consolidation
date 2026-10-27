@@ -11,6 +11,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.advanceTimeBy
@@ -45,6 +46,8 @@ class HybridSearchIntegrationTest {
         context = ApplicationProvider.getApplicationContext()
         database = Room.inMemoryDatabaseBuilder(context, AuraDatabase::class.java)
             .allowMainThreadQueries()
+            .setQueryExecutor(testDispatcher.asExecutor())
+            .setTransactionExecutor(testDispatcher.asExecutor())
             .build()
         
         repository = MediaRepository(dispatcher = testDispatcher)
@@ -186,6 +189,7 @@ class HybridSearchIntegrationTest {
         repository.librarySearchQuery = "cyberpunk"
         
         // Wait for debounce and parallel retrieval
+        advanceTimeBy(400)
         advanceUntilIdle()
 
         val results = repository.latestAiSortRecommendation.value
@@ -224,6 +228,7 @@ class HybridSearchIntegrationTest {
 
         repository.librarySearchQuery = "concept"
         
+        advanceTimeBy(400)
         advanceUntilIdle()
 
         val results = repository.latestAiSortRecommendation.value
@@ -248,6 +253,7 @@ class HybridSearchIntegrationTest {
         val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
         repository.librarySearchQuery = "test"
         
+        advanceTimeBy(400)
         advanceUntilIdle()
         
         val retrieverField = repository.javaClass.getDeclaredField("semanticCandidateRetriever")
@@ -283,6 +289,7 @@ class HybridSearchIntegrationTest {
         repository.librarySearchQuery = "target"
         repository.sortCategory = SortCategory.INTELLIGENT
         
+        advanceTimeBy(400)
         advanceUntilIdle()
 
         val results = repository.latestAiSortRecommendation.value
@@ -303,6 +310,7 @@ class HybridSearchIntegrationTest {
 
         repository.librarySearchQuery = "beach_sunset.jpg"
         
+        advanceTimeBy(400)
         advanceUntilIdle()
 
         val results = repository.latestAiSortRecommendation.value
@@ -322,6 +330,7 @@ class HybridSearchIntegrationTest {
         val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
         repository.librarySearchQuery = "UniqueTitle"
         
+        advanceTimeBy(400)
         advanceUntilIdle()
 
         val results = repository.latestAiSortRecommendation.value

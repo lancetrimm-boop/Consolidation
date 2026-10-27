@@ -5,6 +5,7 @@ import com.example.data.db.PlaybackErrorLogEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -90,6 +91,10 @@ class PlaybackErrorLogRepository(
         scope.launch {
             dao.deleteAll()
         }
+    }
+
+    fun close() {
+        scope.cancel()
     }
 
     companion object {

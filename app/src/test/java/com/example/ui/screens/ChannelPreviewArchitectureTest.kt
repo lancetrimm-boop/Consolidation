@@ -55,7 +55,7 @@ class ChannelPreviewArchitectureTest {
         assertEquals("ME_TV", fixed[0].id)
         assertEquals("FAVORITES", fixed[1].id)
         assertEquals("REDISCOVER", fixed[2].id)
-        assertEquals("CONTINUE", fixed[3].id)
+        assertEquals("FRESH_ARRIVALS", fixed[3].id)
         assertEquals("MOOD", fixed[4].id)
 
         val seeded = Channel(

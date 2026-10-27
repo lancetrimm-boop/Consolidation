@@ -4,9 +4,12 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.AuraDatabase
+import com.example.data.db.MediaEntity
+import kotlin.coroutines.ContinuationInterceptor
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -23,8 +26,6 @@ import org.robolectric.annotation.Config
 @OptIn(ExperimentalCoroutinesApi::class)
 class MediaRepositorySavedTest {
 
-    private val testDispatcher = StandardTestDispatcher()
-    private val testScope = TestScope(testDispatcher)
     private lateinit var repository: MediaRepository
     private lateinit var database: AuraDatabase
     private lateinit var context: Context
@@ -32,17 +33,47 @@ class MediaRepositorySavedTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        database = Room.inMemoryDatabaseBuilder(context, AuraDatabase::class.java).allowMainThreadQueries().build()
-        repository = MediaRepository(testDispatcher)
-        repository.setDatabaseForTesting(database)
     }
 
     @After
     fun tearDown() {
         try {
-            repository.close()
+            if (::repository.isInitialized) {
+                repository.close()
+            }
         } catch (_: Exception) {}
-        database.close()
+        if (::database.isInitialized) {
+            database.close()
+        }
+    }
+
+    private fun TestScope.setupTestEnvironment(): MediaRepository {
+        val testDispatcher = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher
+        database = Room.inMemoryDatabaseBuilder(context, AuraDatabase::class.java)
+            .allowMainThreadQueries()
+            .setQueryExecutor(testDispatcher.asExecutor())
+            .setTransactionExecutor(testDispatcher.asExecutor())
+            .build()
+
+        val repo = MediaRepository(testDispatcher)
+        repo.setDatabaseForTesting(database)
+        return repo
+    }
+
+    private suspend fun setMediaItemsForTesting(items: List<MediaItem>) {
+        val entities = items.map { item ->
+            MediaEntity(
+                id = item.id,
+                title = item.title,
+                mediaType = item.mediaType,
+                year = item.year,
+                duration = item.duration,
+                genre = item.genre,
+                compatibilityStatus = item.compatibilityStatus.name
+            )
+        }
+        database.mediaDao().insertAll(entities)
+        repository.setMediaItemsForTesting(items)
     }
 
     private fun createMediaItem(id: String, title: String): MediaItem {
@@ -57,11 +88,10 @@ class MediaRepositorySavedTest {
     }
 
     @Test
-    fun testSaveMedia_CreatesSavedStateAndTimestamp() = testScope.runTest {
-
-
+    fun testSaveMedia_CreatesSavedStateAndTimestamp() = runTest {
+        repository = setupTestEnvironment()
         val item = createMediaItem("m1", "Media 1")
-        repository.setMediaItemsForTesting(listOf(item))
+        setMediaItemsForTesting(listOf(item))
         advanceUntilIdle()
 
         assertFalse(repository.isSaved("m1"))
@@ -76,11 +106,10 @@ class MediaRepositorySavedTest {
     }
 
     @Test
-    fun testRemoveMedia_RemovesSavedState_SafeForUnsaved() = testScope.runTest {
-
-
+    fun testRemoveMedia_RemovesSavedState_SafeForUnsaved() = runTest {
+        repository = setupTestEnvironment()
         val item = createMediaItem("m1", "Media 1")
-        repository.setMediaItemsForTesting(listOf(item))
+        setMediaItemsForTesting(listOf(item))
         advanceUntilIdle()
 
         repository.saveMedia("m1")
@@ -100,11 +129,10 @@ class MediaRepositorySavedTest {
     }
 
     @Test
-    fun testToggleSaved_AlternatesState() = testScope.runTest {
-
-
+    fun testToggleSaved_AlternatesState() = runTest {
+        repository = setupTestEnvironment()
         val item = createMediaItem("m1", "Media 1")
-        repository.setMediaItemsForTesting(listOf(item))
+        setMediaItemsForTesting(listOf(item))
         advanceUntilIdle()
 
         assertFalse(repository.isSaved("m1"))
@@ -121,13 +149,12 @@ class MediaRepositorySavedTest {
     }
 
     @Test
-    fun testReactiveStateAndOrdering_NewestFirst() = testScope.runTest {
-
-
+    fun testReactiveStateAndOrdering_NewestFirst() = runTest {
+        repository = setupTestEnvironment()
         val item1 = createMediaItem("m1", "Media 1")
         val item2 = createMediaItem("m2", "Media 2")
         val item3 = createMediaItem("m3", "Media 3")
-        repository.setMediaItemsForTesting(listOf(item1, item2, item3))
+        setMediaItemsForTesting(listOf(item1, item2, item3))
         advanceUntilIdle()
 
         val isSavedFlow = repository.observeIsSaved("m1")
@@ -152,9 +179,8 @@ class MediaRepositorySavedTest {
     }
 
     @Test
-    fun testMissingMedia_ToleratesAndExcludesNonExistentItems() = testScope.runTest {
-
-
+    fun testMissingMedia_ToleratesAndExcludesNonExistentItems() = runTest {
+        repository = setupTestEnvironment()
         // Save an ID that has no corresponding MediaItem in the library
         repository.saveMedia("ghost_id")
         advanceUntilIdle()
@@ -167,11 +193,10 @@ class MediaRepositorySavedTest {
     }
 
     @Test
-    fun testRecordMediaCompletion_RemovesFromSaved() = testScope.runTest {
-
-
+    fun testRecordMediaCompletion_RemovesFromSaved() = runTest {
+        repository = setupTestEnvironment()
         val item = createMediaItem("m1", "Media 1")
-        repository.setMediaItemsForTesting(listOf(item))
+        setMediaItemsForTesting(listOf(item))
         advanceUntilIdle()
 
         repository.saveMedia("m1")
@@ -187,11 +212,10 @@ class MediaRepositorySavedTest {
     }
 
     @Test
-    fun testIncompletePlayback_PreservesSaved() = testScope.runTest {
-
-
+    fun testIncompletePlayback_PreservesSaved() = runTest {
+        repository = setupTestEnvironment()
         val item = createMediaItem("m1", "Media 1")
-        repository.setMediaItemsForTesting(listOf(item))
+        setMediaItemsForTesting(listOf(item))
         advanceUntilIdle()
 
         repository.saveMedia("m1")
@@ -207,9 +231,10 @@ class MediaRepositorySavedTest {
     }
 
     @Test
-    fun testRepeatedCompletion_IsIdempotent() = testScope.runTest {
+    fun testRepeatedCompletion_IsIdempotent() = runTest {
+        repository = setupTestEnvironment()
         val item = createMediaItem("m1", "Media 1")
-        repository.setMediaItemsForTesting(listOf(item))
+        setMediaItemsForTesting(listOf(item))
         advanceUntilIdle()
 
         repository.saveMedia("m1")

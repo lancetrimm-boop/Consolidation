@@ -16,6 +16,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.*
 import org.robolectric.RobolectricTestRunner
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -54,15 +55,27 @@ class SemanticIngestionIntegrationTest {
         fakeEmbeddingProvider = FakeEmbeddingProvider(descriptor)
         
         // Use test scope for retriever
-        retriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
+        val defaultRetriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
+        runBlocking {
+            defaultRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+        }
+        retriever = defaultRetriever
+
         val indexingService = DefaultSemanticIndexingService(fakeEmbeddingProvider, retriever, semanticRepo, testDispatcher)
+        val mockVisualIndexer: VisualIndexingService = mock {
+            on { indexVisual(any(), any()) } doReturn EmbeddingResult.Success(SemanticRepresentation(
+                id = "visual_rep", mediaId = "m1", type = SemanticRepresentationType.VISUAL,
+                modelDescriptor = descriptor, dimensionality = 384, vector = FloatArray(384) { 0.1f }, sourceDataHash = "hash"
+            ))
+        }
 
         // Inject semantic components
         val fields = mapOf(
             "semanticRepresentationRepository" to semanticRepo,
             "embeddingProvider" to fakeEmbeddingProvider,
             "semanticIndexingService" to indexingService,
-            "semanticCandidateRetriever" to retriever
+            "semanticCandidateRetriever" to retriever,
+            "visualIndexingService" to mockVisualIndexer
         )
         
         val repoClass = MediaRepository::class.java
@@ -81,13 +94,22 @@ class SemanticIngestionIntegrationTest {
         database.close()
     }
 
-    @Test
+    private fun MediaEntity.toMediaItem(): MediaItem {
+        return MediaItem(id = id, title = title, mediaType = mediaType, uriPath = uriPath)
+    }
+
+    private fun getActiveRetriever(): SemanticCandidateRetriever {
+        val field = repository.javaClass.getDeclaredField("semanticCandidateRetriever")
+        field.isAccessible = true
+        return field.get(repository) as SemanticCandidateRetriever
+    }
+
+    @Test(timeout = 10000)
     fun `test processPendingMedia triggers embedding generation and persistence`() = runTest(testDispatcher) {
         val item = MediaEntity(id = "m1", title = "Sunrise", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         database.mediaDao().insert(item)
         
-        // Sync repo items
-        repository.scanLocalMedia(context)
+        repository.setMediaItemsForTesting(listOf(item.toMediaItem()))
         advanceUntilIdle()
 
         repository.processPendingMedia(context, 1L, setOf("external"), isManual = true)
@@ -96,17 +118,18 @@ class SemanticIngestionIntegrationTest {
         val representations = database.semanticRepresentationDao().getByType(SemanticRepresentationType.CONTENT.name)
         assertEquals(1, representations.size)
         assertEquals("m1", representations[0].mediaId)
-        assertEquals(1, retriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+        val activeRetriever = getActiveRetriever()
+        assertEquals(1, activeRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
     }
 
-    @Test
+    @Test(timeout = 10000)
     fun `test semantic failure does not abort media ingestion`() = runTest(testDispatcher) {
         fakeEmbeddingProvider.shouldFail = true
         
         val item = MediaEntity(id = "m1", title = "Sunrise", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         database.mediaDao().insert(item)
         
-        repository.scanLocalMedia(context)
+        repository.setMediaItemsForTesting(listOf(item.toMediaItem()))
         advanceUntilIdle()
 
         repository.processPendingMedia(context, 1L, setOf("external"), isManual = true)
@@ -121,14 +144,14 @@ class SemanticIngestionIntegrationTest {
         assertEquals(0, representations.size)
     }
 
-    @Test
+    @Test(timeout = 10000)
     fun `test multiple items with partial semantic failure`() = runTest(testDispatcher) {
         val item1 = MediaEntity(id = "m1", title = "Success", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         val item2 = MediaEntity(id = "m2", title = "Fail", mediaType = "PHOTO", uriPath = "/path/2.jpg")
         database.mediaDao().insert(item1)
         database.mediaDao().insert(item2)
         
-        repository.scanLocalMedia(context)
+        repository.setMediaItemsForTesting(listOf(item1.toMediaItem(), item2.toMediaItem()))
         advanceUntilIdle()
 
         // Mock failure for item2 only

@@ -22,8 +22,8 @@ class VideoFrameSamplerTest {
         val durationMs = 60_000L // 60s
         val timestamps = VideoFrameSampler.getSampleTimestamps(durationMs)
         
-        // Default to deterministic Stage 8 fallback since context is null
-        assertEquals(5, timestamps.size)
+        // Default to deterministic Stage 8 fallback since context is null (capped at 3 samples)
+        assertEquals(3, timestamps.size)
     }
 
     @Test
@@ -35,16 +35,16 @@ class VideoFrameSamplerTest {
 
     @Test
     fun testDeterministicSamplingSpacing_BoundsAndMidpoint() = runBlocking {
-        val durationMs = 10_000L // 10s
+        val durationMs = 20_000L // 20s (> 12s threshold)
         val timestamps = VideoFrameSampler.getSampleTimestamps(durationMs)
         
-        assertEquals(5, timestamps.size)
+        assertEquals(3, timestamps.size)
         // Check order and boundaries (within 5% margin)
         for (i in 0 until timestamps.size - 1) {
             assertTrue(timestamps[i] < timestamps[i + 1])
         }
         // Midpoint check
-        assertEquals(5_000_000L, timestamps[2])
+        assertEquals(10_000_000L, timestamps[1])
     }
 }
 

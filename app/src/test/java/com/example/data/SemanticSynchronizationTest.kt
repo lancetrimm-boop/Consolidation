@@ -16,6 +16,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.*
 import org.robolectric.RobolectricTestRunner
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -50,15 +51,27 @@ class SemanticSynchronizationTest {
         fakeEmbeddingProvider = FakeEmbeddingProvider(descriptor)
         
         // Provide test dispatcher to retriever for determinism
-        retriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
+        val defaultRetriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
+        runBlocking {
+            defaultRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+        }
+        retriever = defaultRetriever
+
         val indexingService = DefaultSemanticIndexingService(fakeEmbeddingProvider, retriever, semanticRepo, testDispatcher)
+        val mockVisualIndexer: VisualIndexingService = mock {
+            on { indexVisual(any(), any()) } doReturn EmbeddingResult.Success(SemanticRepresentation(
+                id = "visual_rep", mediaId = "m1", type = SemanticRepresentationType.VISUAL,
+                modelDescriptor = descriptor, dimensionality = 384, vector = FloatArray(384) { 0.1f }, sourceDataHash = "hash"
+            ))
+        }
 
         // Inject semantic components
         val fields = mapOf(
             "semanticRepresentationRepository" to semanticRepo,
             "embeddingProvider" to fakeEmbeddingProvider,
             "semanticIndexingService" to indexingService,
-            "semanticCandidateRetriever" to retriever
+            "semanticCandidateRetriever" to retriever,
+            "visualIndexingService" to mockVisualIndexer
         )
         
         val repoClass = MediaRepository::class.java
@@ -74,13 +87,22 @@ class SemanticSynchronizationTest {
         database.close()
     }
 
-    @Test
+    private fun MediaEntity.toMediaItem(): MediaItem {
+        return MediaItem(id = id, title = title, mediaType = mediaType, uriPath = uriPath)
+    }
+
+    private fun getActiveRetriever(): SemanticCandidateRetriever {
+        val field = repository.javaClass.getDeclaredField("semanticCandidateRetriever")
+        field.isAccessible = true
+        return field.get(repository) as SemanticCandidateRetriever
+    }
+
+    @Test(timeout = 10000)
     fun `test addition synchronization`() = runTest(testDispatcher) {
         val item = MediaEntity(id = "m1", title = "New Image", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         database.mediaDao().insert(item)
         
-        // Re-sync items in repo
-        repository.scanLocalMedia(context)
+        repository.setMediaItemsForTesting(listOf(item.toMediaItem()))
         advanceUntilIdle()
         
         // Trigger manual processing which should trigger semantic indexing
@@ -88,26 +110,28 @@ class SemanticSynchronizationTest {
         advanceUntilIdle()
         
         // Verify index has the item
-        assertEquals("Index should have 1 item after ingestion", 1, retriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+        val activeRetriever = getActiveRetriever()
+        assertEquals("Index should have 1 item after ingestion", 1, activeRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
     }
 
-    @Test
+    @Test(timeout = 10000)
     fun `test deletion synchronization`() = runTest(testDispatcher) {
         // Setup initial item
         val item = MediaEntity(id = "m1", title = "To Delete", mediaType = "PHOTO", uriPath = "/path/1.jpg")
         database.mediaDao().insert(item)
-        repository.scanLocalMedia(context)
+        repository.setMediaItemsForTesting(listOf(item.toMediaItem()))
         repository.processPendingMedia(context, 1L, setOf("external"), isManual = true)
         advanceUntilIdle()
         
-        assertEquals(1, retriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+        val activeRetriever = getActiveRetriever()
+        assertEquals(1, activeRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
 
         // Delete via repository
         repository.deleteMediaItem("m1")
         advanceUntilIdle()
         
         // Verify index is empty
-        assertEquals("Index should be empty after deletion", 0, retriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+        assertEquals("Index should be empty after deletion", 0, activeRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
     }
 
     private class FakeEmbeddingProvider(override val descriptor: EmbeddingModelDescriptor) : EmbeddingProvider {

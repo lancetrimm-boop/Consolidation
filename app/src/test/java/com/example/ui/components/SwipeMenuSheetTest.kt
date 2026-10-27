@@ -3,9 +3,13 @@ package com.example.ui.components
 import com.example.data.CompatibilityStatus
 import com.example.data.MediaItem
 import com.example.data.MediaRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -20,7 +24,13 @@ class SwipeMenuSheetTest {
 
     @Before
     fun setup() {
+        Dispatchers.setMain(testDispatcher)
         repository = MediaRepository(testDispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
     }
 
     private fun createMediaItem(id: String, isFavorite: Boolean = false): MediaItem {

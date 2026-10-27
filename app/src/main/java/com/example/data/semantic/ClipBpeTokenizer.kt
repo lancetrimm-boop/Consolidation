@@ -81,7 +81,8 @@ class ClipBpeTokenizer(
      */
     fun tokenize(text: String): LongArray {
         val tokens = mutableListOf<Int>()
-        tokens.add(vocab[SOT_TOKEN] ?: throw IllegalStateException("SOT token missing"))
+        val sotVal = vocab[SOT_TOKEN] ?: vocab["<|startoftext|>"] ?: throw IllegalStateException("SOT token missing")
+        tokens.add(sotVal)
 
         val matcher = pattern.matcher(text.lowercase())
         val words = mutableListOf<String>()
@@ -99,7 +100,7 @@ class ClipBpeTokenizer(
         }
 
         // Add EOT token
-        val eotId = vocab[EOT_TOKEN] ?: throw IllegalStateException("EOT token missing")
+        val eotId = vocab[EOT_TOKEN] ?: vocab["<|endoftext|>"] ?: throw IllegalStateException("EOT token missing")
         if (tokens.size < MAX_SEQ_LENGTH) {
             tokens.add(eotId)
         } else {
@@ -118,6 +119,9 @@ class ClipBpeTokenizer(
 
     private fun bpe(token: String): List<String> {
         if (token in cache) return cache[token]!!
+        if (vocab.containsKey(token)) {
+            return listOf(token)
+        }
         
         val eowToken = token + "</w>"
         if (vocab.containsKey(eowToken)) {

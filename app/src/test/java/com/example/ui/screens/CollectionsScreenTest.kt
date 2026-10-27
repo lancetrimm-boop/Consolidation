@@ -38,7 +38,18 @@ class CollectionsScreenTest {
         val recentWatchedItem = createMediaItem("recent_01", "Watched Video")
 
         whenever(repository.watchHistory).thenReturn(MutableStateFlow(listOf(recentWatchedItem)))
-        whenever(repository.observeVisualIndexReadiness()).thenReturn(flowOf())
+        whenever(repository.recentSearches).thenReturn(MutableStateFlow(emptyList()))
+        whenever(repository.observeSavedMedia()).thenReturn(MutableStateFlow(emptyList()))
+        whenever(repository.scanProgress).thenReturn(MutableStateFlow(ScanProgressState()))
+        whenever(repository.observeVisualIndexReadiness()).thenReturn(MutableStateFlow(VisualIndexReadiness(VisualIndexState.GREEN_READY, 0, 0, 0, 0, 0, "", true)))
+
+        val intelligenceRepository = mock<IntelligenceRepository>()
+        whenever(repository.intelligenceRepository).thenReturn(intelligenceRepository)
+        val decisionCenterState = mock<DecisionCenterState>()
+        whenever(intelligenceRepository.getDecisionCenterFlow()).thenReturn(MutableStateFlow(decisionCenterState))
+        val masterReport = mock<MasterIntelligenceReport>()
+        whenever(intelligenceRepository.getMasterReportFlow()).thenReturn(MutableStateFlow(masterReport))
+        whenever(intelligenceRepository.snapshotReport).thenReturn(MutableStateFlow(null))
 
         composeTestRule.setContent {
             CollectionsScreen(

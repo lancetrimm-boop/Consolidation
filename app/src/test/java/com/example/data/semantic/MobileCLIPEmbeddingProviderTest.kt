@@ -80,9 +80,9 @@ class MobileCLIPEmbeddingProviderTest {
         val testProvider = MobileCLIPEmbeddingProvider(capturingEngine)
         
         val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
-        // Set a pure red pixel at (0,0)
+        // Set a pure red pixel at (128,128) (center crop region)
         // ARGB: 0xFFFF0000
-        bitmap.setPixel(0, 0, 0xFFFF0000.toInt())
+        bitmap.setPixel(128, 128, 0xFFFF0000.toInt())
         
         testProvider.generateEmbedding("m", SemanticInput.ExplicitBitmap(bitmap), "h")
         
@@ -90,12 +90,13 @@ class MobileCLIPEmbeddingProviderTest {
         buffer.rewind()
         
         // NCHW layout: [3][256][256]
-        // Red channel is first 256*256 values
-        val firstPixelRed = buffer.get(0)
+        // Center pixel index in 256x256 is 128 * 256 + 128
+        val centerIndex = 128 * 256 + 128
+        val firstPixelRed = buffer.get(centerIndex)
         // Green channel is second 256*256 values
-        val firstPixelGreen = buffer.get(256 * 256)
+        val firstPixelGreen = buffer.get(256 * 256 + centerIndex)
         // Blue channel is third 256*256 values
-        val firstPixelBlue = buffer.get(2 * 256 * 256)
+        val firstPixelBlue = buffer.get(2 * 256 * 256 + centerIndex)
         
         assertEquals("Red channel should be 1.0", 1.0f, firstPixelRed, 1e-4f)
         assertEquals("Green channel should be 0.0", 0.0f, firstPixelGreen, 1e-4f)

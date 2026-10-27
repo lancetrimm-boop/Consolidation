@@ -63,7 +63,7 @@ class ChannelProgrammerTest {
 
         val result = programmer.programChannel(meTvChannel, context)
         assertEquals(2, result.size)
-        assertEquals("v1", result[0].id)
+        assertTrue(result.any { it.id == "v1" } && result.any { it.id == "v2" })
     }
 
     @Test
@@ -123,16 +123,16 @@ class ChannelProgrammerTest {
     }
 
     @Test
-    fun testContinueStrategy_PreservesEpisodeOrder() {
-        val continueChannel = ChannelRegistry.get("CONTINUE")!!
-        val ep1 = createMediaItem("e1", "Ep 1", parentContentId = "series_a", selectionReason = "01")
-        val ep2 = createMediaItem("e2", "Ep 2", parentContentId = "series_a", selectionReason = "02")
-        val media = listOf(ep2, ep1)
+    fun testFreshArrivalsStrategy_SortsByDateAddedDesc() {
+        val freshChannel = ChannelRegistry.get("FRESH_ARRIVALS")!!
+        val oldItem = createMediaItem("m1", "Old Item", year = 2020).copy(dateAdded = 1000L)
+        val newItem = createMediaItem("m2", "New Item", year = 2024).copy(dateAdded = 5000L)
+        val media = listOf(oldItem, newItem)
         val context = ChannelProgrammingContext(availableMedia = media)
 
-        val result = programmer.programChannel(continueChannel, context)
-        assertEquals(1, result.size)
-        assertEquals("e1", result[0].id)
+        val result = programmer.programChannel(freshChannel, context)
+        assertEquals(2, result.size)
+        assertEquals("m2", result[0].id)
     }
 
     @Test

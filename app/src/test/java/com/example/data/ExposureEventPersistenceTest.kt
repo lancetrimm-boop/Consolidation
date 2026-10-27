@@ -37,6 +37,7 @@ class ExposureEventPersistenceTest {
 
     @After
     fun tearDown() {
+        exposureRepository.close()
         database.close()
     }
 

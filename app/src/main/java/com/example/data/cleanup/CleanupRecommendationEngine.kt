@@ -67,11 +67,11 @@ object CleanupRecommendationEngine {
                     reasons.add(CleanupReason.DUPLICATE_CONTENT)
                     CleanupCategory.REDUNDANT
                 }
-                metadata.sizeBytes > 1 * 1024 * 1024L -> {
+                metadata.sizeBytes >= 500 * 1024 * 1024L -> {
                     reasons.add(CleanupReason.LARGE_FILE_SIZE)
                     CleanupCategory.SPACE_HOGS
                 }
-                !metadata.isFavorite && (result.keepScore < 0.90f || hasExplicitNegativeUserSignal) -> {
+                !metadata.isFavorite && hasExplicitNegativeUserSignal && result.keepScore < 0.50f -> {
                     CleanupCategory.DELETE_RECOMMENDATIONS
                 }
                 else -> CleanupCategory.NONE

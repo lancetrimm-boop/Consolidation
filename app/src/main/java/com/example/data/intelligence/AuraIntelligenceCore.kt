@@ -722,10 +722,11 @@ class AuraIntelligenceCore(
             val visualScore = fusedCandidate.channelScores[SearchChannel.SEMANTIC_VISUAL] ?: maxNeuralSimilarity
             val formattedReason = if (isSimilarMode && visualScore > 0f) "${(visualScore * 100).toInt()}% Similar" else item.selectionReason
 
+            val authoritativeBoost = if (fusedCandidate.isAuthoritative) 100.0 else 0.0
             val finalScore = if (isSimilarMode) {
                 visualScore.toDouble()
             } else {
-                (fusedCandidate.rrfScore * 0.7) + (personalScore * 0.3) + (explorationEvidence.explorationScore * 0.05) + (relBonus * 0.1) + pairwiseImpact
+                (fusedCandidate.rrfScore * 0.7) + (personalScore * 0.3) + (explorationEvidence.explorationScore * 0.05) + (relBonus * 0.1) + pairwiseImpact + authoritativeBoost
             }
 
             IntelligenceCandidate(

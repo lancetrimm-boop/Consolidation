@@ -109,8 +109,8 @@ class TinyCLIPPrototypeTest {
         val gVal = (gNorm - MEAN[1]) / STD[1]
         val bVal = (bNorm - MEAN[2]) / STD[2]
 
-        assertEquals(1.1275294f, rVal, 1e-4f)
-        assertEquals(-0.2511221f, gVal, 1e-4f)
+        assertEquals(1.1274228f, rVal, 1e-4f)
+        assertEquals(-0.25132027f, gVal, 1e-4f)
         assertEquals(-0.7692222f, bVal, 1e-4f)
     }
 

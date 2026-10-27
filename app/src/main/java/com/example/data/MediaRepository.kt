@@ -511,9 +511,15 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     entitlementRepository = EntitlementRepository(db.userPreferenceDao(), scope)
                     billingManager = BillingManager(context, entitlementRepository!!, scope)
                     searchFeedbackRepository = SearchFeedbackRepository(db.searchFeedbackDao(), scope)
-                    conversionQueueRepository = ConversionQueueRepository(db.conversionJobDao(), db.userPreferenceDao(), androidx.work.WorkManager.getInstance(context))
+                    val wm = try { androidx.work.WorkManager.getInstance(context) } catch (_: Throwable) { null }
+                    conversionQueueRepository = ConversionQueueRepository(db.conversionJobDao(), db.userPreferenceDao(), wm)
                     semanticRepresentationRepository = RoomSemanticRepresentationRepository(db.semanticRepresentationDao())
-                    initAI(context)
+                    try {
+                        initAI(context)
+                    } catch (e: Exception) {
+                        Log.w("MediaRepository", "AI initialization failed during database setup, continuing in fallback mode", e)
+                        _aiState.value = AIState.ERROR
+                    }
                     _databaseState.value = DatabaseState.READY
                     startDatabaseObservers(db)
                     try {
@@ -539,7 +545,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     } catch (e: Exception) {
                         Log.w("MediaRepository", "Failed to mark unextractable media as terminal", e)
                     }
-                    launch { backfillSemantics(); AuraEnrichmentWorker.schedule(context) }
+                    launch { 
+                        backfillSemantics()
+                        try { 
+                            AuraEnrichmentWorker.schedule(context) 
+                        } catch (e: Throwable) { 
+                            Log.w("MediaRepository", "Failed to schedule AuraEnrichmentWorker: ${e.message}") 
+                        } 
+                    }
                     LegacyDatabaseEncryptionMigrator.cleanupLegacyBackups(context)
                 } catch (t: Throwable) { if (t !is CancellationException) { _databaseErrorMessage.value = t.message; _databaseState.value = DatabaseState.TRANSITION_FAILED } }
             }
@@ -679,8 +692,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             val engine = try { OnnxRuntimeMiniLMInferenceEngine(modelPath = com.example.util.ModelAssetLoader.getLocalPath(context, "models/all-minilm-l6-v2.onnx")) } catch (e: Exception) { LocalMiniLMInferenceEngine() }
             val tokenizer = try { BertWordPieceTokenizer.fromVocabText(context.assets.open("models/vocab.txt").use { it.bufferedReader().readText() }) } catch (e: Exception) { BertWordPieceTokenizer() }
             val provider = MiniLMEmbeddingProvider(engine, tokenizer); embeddingProvider = provider
-            val retriever = DefaultSemanticCandidateRetriever(semanticRepresentationRepository!!); semanticCandidateRetriever = retriever
-            semanticSearchService = DefaultSemanticSearchService(provider, retriever)
+            val retriever = DefaultSemanticCandidateRetriever(semanticRepresentationRepository!!, dispatcher); semanticCandidateRetriever = retriever
+            semanticSearchService = DefaultSemanticSearchService(provider, retriever, dispatcher)
             semanticIndexingService = DefaultSemanticIndexingService(provider, retriever, semanticRepresentationRepository!!)
             scope.launch { try { retriever.initializeIndex(provider.descriptor.primaryType, provider.descriptor) } catch (e: Exception) {} }
             val router = RetrievalRouter(ProductionLexicalRetriever(), semanticSearchService as? SemanticRetrievalProvider, null)
@@ -1784,16 +1797,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 }
                 database?.mediaDao()?.updateAll(updatedBatch)
 
-                // Progressive / Interleaved Visual Indexing (non-blocking)
+                // Progressive / Interleaved Visual Indexing
                 val playableItems = updatedBatch.filter { !it.isDeleted && (it.compatibilityStatus == "PLAYABLE" || it.compatibilityStatus == "PLAYABLE_SOFTWARE_DECODE") }
                 if (playableItems.isNotEmpty()) {
-                    scope.launch(dispatcher) {
-                        try {
-                            processSemanticsForBatch(playableItems)
-                        } catch (e: Exception) {
-                            if (e is CancellationException) throw e
-                            Log.w("MediaRepository", "Interleaved semantic indexing error: ${e.message}")
-                        }
+                    try {
+                        processSemanticsForBatch(playableItems)
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        Log.w("MediaRepository", "Interleaved semantic indexing error: ${e.message}")
                     }
                 }
             }
@@ -2336,6 +2347,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
         initJob?.cancel()
         observersJob?.cancel()
         scope.cancel()
+        exposureRepository?.close()
+        playbackErrorLogRepository?.close()
     }
 
     private inner class ProductionLexicalRetriever : LexicalCandidateRetriever { 
@@ -2344,7 +2357,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             return visibleMediaItems.value.filter { item ->
                 item.title.lowercase().contains(q)
             }.take(topK).mapIndexed { idx, item ->
-                RankedChannelItem(item.id, 100f, idx + 1)
+                val isExact = item.title.lowercase() == q || item.title.lowercase().substringBeforeLast(".") == q.substringBeforeLast(".")
+                RankedChannelItem(item.id, if (isExact) 100f else 50f, idx + 1, metadata = if (isExact) mapOf("is_authoritative" to "true") else emptyMap())
             }
         } 
     }

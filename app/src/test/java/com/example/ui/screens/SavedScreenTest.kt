@@ -77,7 +77,7 @@ class SavedScreenTest {
         val repository = mock<MediaRepository>()
         whenever(repository.observeSavedMedia()).thenReturn(MutableStateFlow(emptyList()))
         whenever(repository.watchHistory).thenReturn(MutableStateFlow(emptyList()))
-        whenever(repository.observeVisualIndexReadiness()).thenReturn(flowOf())
+        whenever(repository.observeVisualIndexReadiness()).thenReturn(MutableStateFlow(VisualIndexReadiness(VisualIndexState.GREEN_READY, 0, 0, 0, 0, 0, "", true)))
         whenever(repository.tasteDNA).thenReturn(MutableStateFlow(TasteDNA()))
         whenever(repository.preferenceProfile).thenReturn(MutableStateFlow(TasteDNA.PreferenceProfile()))
         whenever(repository.discoveryPolicy).thenReturn(MutableStateFlow(DiscoveryPolicy()))
@@ -85,6 +85,7 @@ class SavedScreenTest {
         whenever(repository.signatureStyleProfile).thenReturn(MutableStateFlow(SignatureStyleProfile(emptyList(), emptyList())))
         whenever(repository.mediaItems).thenReturn(MutableStateFlow(emptyList()))
         whenever(repository.intelligenceStats).thenReturn(MutableStateFlow(IntelligenceStats()))
+        whenever(repository.scanProgress).thenReturn(MutableStateFlow(ScanProgressState()))
         
         val searchFeedbackRepository = mock<SearchFeedbackRepository>()
         whenever(repository.searchFeedbackRepository).thenReturn(searchFeedbackRepository)

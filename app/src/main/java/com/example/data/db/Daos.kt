@@ -447,7 +447,7 @@ interface PlaybackErrorLogDao {
     @Update
     suspend fun update(error: PlaybackErrorLogEntity)
 
-    @Query("SELECT * FROM playback_error_logs WHERE mediaItemId = :mediaItemId AND errorCode = :errorCode AND exceptionClass = :exceptionClass AND sessionId = :sessionId LIMIT 1")
+    @Query("SELECT * FROM playback_error_logs WHERE mediaItemId IS :mediaItemId AND errorCode = :errorCode AND exceptionClass = :exceptionClass AND sessionId IS :sessionId LIMIT 1")
     suspend fun findExistingError(mediaItemId: String?, errorCode: Int?, exceptionClass: String?, sessionId: String?): PlaybackErrorLogEntity?
 
     @Query("SELECT * FROM playback_error_logs ORDER BY timestamp DESC, id DESC")
