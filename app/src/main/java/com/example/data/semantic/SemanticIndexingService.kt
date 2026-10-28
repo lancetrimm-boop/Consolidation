@@ -3,7 +3,10 @@ package com.example.data.semantic
 import com.example.data.MediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Service responsible for the end-to-end semantic indexing pipeline.
@@ -27,6 +30,11 @@ interface SemanticIndexingService {
      * Efficiently indexes a batch of media items.
      */
     suspend fun indexBatch(items: List<MediaItem>)
+
+    /**
+     * Executes the given block under the per-media-ID coroutine mutex lock.
+     */
+    suspend fun <T> withMediaLock(mediaId: String, block: suspend () -> T): T
 }
 
 /**
@@ -39,6 +47,8 @@ class DefaultSemanticIndexingService(
     private val dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default,
     private val isMediaActive: suspend (String) -> Boolean = { true }
 ) : SemanticIndexingService {
+
+    private val mediaLocks = ConcurrentHashMap<String, Mutex>()
 
     override suspend fun indexMediaItem(item: MediaItem): EmbeddingResult = withContext(dispatcher) {
         try {
@@ -57,35 +67,42 @@ class DefaultSemanticIndexingService(
                 descriptor = descriptor
             )
 
+            val mutex = mediaLocks.getOrPut(item.id) { Mutex() }
+
             if (existing != null && 
                 existing.documentVersion == currentDocVersion && 
                 existing.sourceDataHash == sourceHash) {
                 
                 android.util.Log.d("SemanticIndexing", "Reusing existing valid embedding for media: ${item.id}")
-                if (!isMediaActive(item.id)) {
-                    android.util.Log.d("SemanticIndexing", "Skipping reuse for media ${item.id} because it was deleted.")
-                    return@withContext EmbeddingResult.Failure(EmbeddingErrorCode.INFERENCE_ERROR, "Media item deleted")
+                return@withContext mutex.withLock {
+                    if (!isMediaActive(item.id)) {
+                        android.util.Log.d("SemanticIndexing", "Skipping reuse for media ${item.id} because it was deleted.")
+                        return@withLock EmbeddingResult.Failure(EmbeddingErrorCode.INFERENCE_ERROR, "Media item deleted")
+                    }
+                    candidateRetriever.onRepresentationAdded(existing)
+                    EmbeddingResult.Success(existing)
                 }
-                candidateRetriever.onRepresentationAdded(existing)
-                return@withContext EmbeddingResult.Success(existing)
             }
 
-            // 4. Generate new neural embedding
+            // 4. Generate new neural embedding (run outside lock to avoid blocking other media)
             val result = embeddingProvider.generateEmbedding(
                 mediaId = item.id,
                 input = SemanticInput.Text(document),
                 sourceDataHash = sourceHash
             )
 
-            // 5. On success, persist and notify retriever for index update
+            // 5. On success, persist and notify retriever for index update under per-media mutex
             if (result is EmbeddingResult.Success) {
-                if (!isMediaActive(item.id)) {
-                    android.util.Log.d("SemanticIndexing", "Skipping persistence for media ${item.id} because it was deleted during inference.")
-                    return@withContext EmbeddingResult.Failure(EmbeddingErrorCode.INFERENCE_ERROR, "Media item deleted during inference")
+                return@withContext mutex.withLock {
+                    if (!isMediaActive(item.id)) {
+                        android.util.Log.d("SemanticIndexing", "Skipping persistence for media ${item.id} because it was deleted during inference.")
+                        return@withLock EmbeddingResult.Failure(EmbeddingErrorCode.INFERENCE_ERROR, "Media item deleted during inference")
+                    }
+                    val representation = result.representation.copy(documentVersion = currentDocVersion)
+                    repository.saveRepresentation(representation)
+                    candidateRetriever.onRepresentationAdded(representation)
+                    result
                 }
-                val representation = result.representation.copy(documentVersion = currentDocVersion)
-                repository.saveRepresentation(representation)
-                candidateRetriever.onRepresentationAdded(representation)
             }
 
             result
@@ -102,6 +119,11 @@ class DefaultSemanticIndexingService(
         items.forEach { item ->
             indexMediaItem(item)
         }
+    }
+
+    override suspend fun <T> withMediaLock(mediaId: String, block: suspend () -> T): T {
+        val mutex = mediaLocks.getOrPut(mediaId) { Mutex() }
+        return mutex.withLock { block() }
     }
 
     private fun computeSha256(text: String): String {

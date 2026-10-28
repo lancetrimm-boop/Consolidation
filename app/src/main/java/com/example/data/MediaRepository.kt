@@ -1415,6 +1415,17 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     }
 
     suspend fun deleteMediaItemSuspend(id: String) {
+        val indexingService = semanticIndexingService
+        if (indexingService != null) {
+            indexingService.withMediaLock(id) {
+                executeDeletion(id)
+            }
+        } else {
+            executeDeletion(id)
+        }
+    }
+
+    private suspend fun executeDeletion(id: String) {
         updateMediaItemsState { list -> list.filterNot { it.id == id } }
         try {
             database?.mediaDao()?.deleteById(id)

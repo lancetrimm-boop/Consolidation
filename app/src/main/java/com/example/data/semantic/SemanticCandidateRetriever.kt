@@ -70,6 +70,9 @@ class DefaultSemanticCandidateRetriever(
                 val activeRepresentations = representations.filter { it.mediaId !in removedMediaIds }
                 val index = InMemoryVectorIndex(descriptor, type)
                 index.rebuild(activeRepresentations)
+                for (removedId in removedMediaIds) {
+                    index.removeForMedia(removedId)
+                }
                 indices[key] = index
 
                 val typeCount = activeRepresentations.size

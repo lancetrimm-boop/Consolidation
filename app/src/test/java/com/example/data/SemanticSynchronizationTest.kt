@@ -232,6 +232,41 @@ class SemanticSynchronizationTest {
     }
 
     @Test(timeout = 10000)
+    fun `test initialization cancellation and retry`() = runTest(testDispatcher) {
+        val pauseLatch = CompletableDeferred<Unit>()
+        val cancelLatch = CompletableDeferred<Unit>()
+
+        val pausingRepo = object : SemanticRepresentationRepository by semanticRepo {
+            override suspend fun getCompatibleRepresentations(type: SemanticRepresentationType, descriptor: EmbeddingModelDescriptor): List<SemanticRepresentation> {
+                pauseLatch.complete(Unit)
+                cancelLatch.await()
+                return semanticRepo.getCompatibleRepresentations(type, descriptor)
+            }
+        }
+
+        val testRetriever = DefaultSemanticCandidateRetriever(pausingRepo, testDispatcher)
+
+        val initJob = backgroundScope.launch(testDispatcher) {
+            try {
+                testRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+            } catch (_: CancellationException) {
+                // Expected cancellation
+            }
+        }
+
+        pauseLatch.await()
+        initJob.cancelAndJoin()
+        cancelLatch.complete(Unit)
+        advanceUntilIdle()
+
+        val normalRetriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
+        normalRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+        advanceUntilIdle()
+
+        assertEquals("Retriever should successfully initialize after previous cancellation", 0, normalRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+    }
+
+    @Test(timeout = 10000)
     fun `test initialization failure and retry`() = runTest(testDispatcher) {
         var callCount = 0
         var failFirst = true
