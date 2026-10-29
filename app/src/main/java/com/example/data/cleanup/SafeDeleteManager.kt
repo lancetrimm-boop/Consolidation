@@ -61,7 +61,7 @@ class SafeDeleteManager(
         items: List<MediaItem>,
         recommendations: List<CleanupRecommendation>,
         launcher: ActivityResultLauncher<IntentSenderRequest>
-    ) {
+    ): Boolean {
         val isEntitled = repository.entitlementRepository?.isFeatureAvailable(
             com.example.data.entitlement.ProFeature.CLEANUP_AUTOMATION
         ) == true
@@ -71,10 +71,10 @@ class SafeDeleteManager(
             _deletionState.value = DeletionState.FAILED
             resetPending()
             clearPersistedState()
-            return
+            return false
         }
 
-        if (items.isEmpty()) return
+        if (items.isEmpty()) return true
 
         pendingRecommendations = recommendations
         
@@ -126,6 +126,7 @@ class SafeDeleteManager(
             resetPending()
             clearPersistedState()
         }
+        return true
     }
 
     /**

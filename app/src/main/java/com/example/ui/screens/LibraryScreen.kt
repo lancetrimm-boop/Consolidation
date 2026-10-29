@@ -145,12 +145,15 @@ fun LibraryScreen(
         },
         onSafeDeleteRequest = { ids, launcher ->
             val itemsToDelete = ids.mapNotNull { mediaItemsMap[it] }
-            repository.safeDeleteManager.requestDeletion(
+            val accepted = repository.safeDeleteManager.requestDeletion(
                 context = context,
                 items = itemsToDelete,
                 recommendations = emptyList(),
                 launcher = launcher
             )
+            if (!accepted) {
+                Toast.makeText(context, "Batch cleanup requires Aura Pro.", Toast.LENGTH_LONG).show()
+            }
         },
         onLike = { id ->
             repository.recordLike(id)

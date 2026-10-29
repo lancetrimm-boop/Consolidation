@@ -214,8 +214,11 @@ class SafeDeleteManagerTest {
         val rec = CleanupRecommendation("ms-1", 0.5f, 0.8f, CleanupCategory.DELETE_RECOMMENDATIONS, emptyList(), 1024, explanation = "Test")
         val launcher: androidx.activity.result.ActivityResultLauncher<androidx.activity.result.IntentSenderRequest> = mock()
 
-        deleteManager.requestDeletion(context, listOf(item), listOf(rec), launcher)
+        val accepted = deleteManager.requestDeletion(context, listOf(item), listOf(rec), launcher)
         testDispatcher.scheduler.advanceUntilIdle()
+
+        // 0. Request should be rejected
+        assertFalse("requestDeletion must return false when non-Pro", accepted)
 
         // 1. Deletion state should be marked FAILED
         assertEquals(DeletionState.FAILED, deleteManager.deletionState.value)
@@ -241,8 +244,9 @@ class SafeDeleteManagerTest {
         val item = MediaItem(id = "ms-1", title = "MS", mediaType = "PHOTO", uriPath = "content://media/external/images/media/1")
         val launcher: androidx.activity.result.ActivityResultLauncher<androidx.activity.result.IntentSenderRequest> = mock()
 
-        deleteManager.requestDeletion(context, listOf(item), emptyList(), launcher)
+        val accepted = deleteManager.requestDeletion(context, listOf(item), emptyList(), launcher)
 
+        assertTrue("requestDeletion must return true when Pro", accepted)
         assertEquals(DeletionState.PENDING, deleteManager.deletionState.value)
         verify(launcher).launch(any())
     }
