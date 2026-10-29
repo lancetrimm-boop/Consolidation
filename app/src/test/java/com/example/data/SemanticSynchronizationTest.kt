@@ -171,7 +171,10 @@ class SemanticSynchronizationTest {
             override fun close() {}
         }
 
-        val indexingService = DefaultSemanticIndexingService(suspendingProvider, activeRetriever, semanticRepo, testDispatcher)
+        val indexingService = DefaultSemanticIndexingService(suspendingProvider, activeRetriever, semanticRepo, testDispatcher) { mediaId ->
+            val entity = database.mediaDao().getMediaById(mediaId)
+            entity != null && !entity.isDeleted
+        }
 
         val indexingJob = backgroundScope.launch(testDispatcher) {
             indexingService.indexMediaItem(item.toMediaItem())
@@ -223,6 +226,7 @@ class SemanticSynchronizationTest {
 
         database.mediaDao().deleteById("m1")
         database.mediaDao().update(item.copy(isDeleted = true))
+        testRetriever.onMediaRemoved("m1")
 
         resumeLatch.complete(Unit)
         initJob.join()
@@ -306,5 +310,46 @@ class SemanticSynchronizationTest {
 
         assertEquals("Retry attempt must execute successfully", 2, callCount)
         assertEquals("Index must hydrate successfully after retry", 1, testRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+    }
+
+    @Test(timeout = 10000)
+    fun `test fail-closed indexing when activity check throws exception`() = runTest(testDispatcher) {
+        val activeRetriever = getActiveRetriever()
+        activeRetriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
+
+        val item = MediaEntity(id = "m_fail", title = "Unverified Item", mediaType = "PHOTO", uriPath = "/path/fail.jpg")
+        database.mediaDao().insert(item)
+
+        var shouldThrowCancellation = false
+        val failingCheckService = DefaultSemanticIndexingService(
+            embeddingProvider = fakeEmbeddingProvider,
+            candidateRetriever = activeRetriever,
+            repository = semanticRepo,
+            dispatcher = testDispatcher
+        ) { _ ->
+            if (shouldThrowCancellation) {
+                throw CancellationException("Simulated cancellation during check")
+            } else {
+                throw RuntimeException("Simulated DB lookup error")
+            }
+        }
+
+        // Test 1: General DB lookup exception results in fail-closed (no persistence)
+        val result = failingCheckService.indexMediaItem(item.toMediaItem())
+        assertTrue("Indexing must return failure when activity check fails", result is EmbeddingResult.Failure)
+
+        val reps = database.semanticRepresentationDao().getByType(SemanticRepresentationType.CONTENT.name)
+        assertTrue("No representation should be persisted when activity check fails", reps.isEmpty())
+        assertEquals("Retriever should not contain candidate when activity check fails", 0, activeRetriever.getIndexSize(SemanticRepresentationType.CONTENT, descriptor))
+
+        // Test 2: CancellationException in check must propagate
+        shouldThrowCancellation = true
+        var cancellationPropagated = false
+        try {
+            failingCheckService.indexMediaItem(item.toMediaItem())
+        } catch (_: CancellationException) {
+            cancellationPropagated = true
+        }
+        assertTrue("CancellationException must propagate through activity check", cancellationPropagated)
     }
 }

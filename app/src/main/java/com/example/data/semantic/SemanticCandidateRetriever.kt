@@ -67,16 +67,19 @@ class DefaultSemanticCandidateRetriever(
             scope.async {
                 android.util.Log.d("AuraSemanticTrace", "INDEX_INIT_START key=$key")
                 val representations = repository.getCompatibleRepresentations(type, descriptor)
-                val activeRepresentations = representations.filter { it.mediaId !in removedMediaIds }
                 val index = InMemoryVectorIndex(descriptor, type)
-                index.rebuild(activeRepresentations)
-                for (removedId in removedMediaIds) {
-                    index.removeForMedia(removedId)
+                val typeCount: Int
+                val distinctMedia: Int
+                synchronized(this@DefaultSemanticCandidateRetriever) {
+                    val activeRepresentations = representations.filter { it.mediaId !in removedMediaIds }
+                    index.rebuild(activeRepresentations)
+                    for (removedId in removedMediaIds) {
+                        index.removeForMedia(removedId)
+                    }
+                    indices[key] = index
+                    typeCount = activeRepresentations.size
+                    distinctMedia = activeRepresentations.map { it.mediaId }.distinct().size
                 }
-                indices[key] = index
-
-                val typeCount = activeRepresentations.size
-                val distinctMedia = activeRepresentations.map { it.mediaId }.distinct().size
                 android.util.Log.i("AuraSemanticTrace", "INDEX_INIT_COMPLETE key=$key persisted=$typeCount distinctMedia=$distinctMedia indexed=${index.size}")
             }
         }
@@ -127,9 +130,11 @@ class DefaultSemanticCandidateRetriever(
     }
 
     override fun onMediaRemoved(mediaId: String) {
-        removedMediaIds.add(mediaId)
-        for (index in indices.values) {
-            index.removeForMedia(mediaId)
+        synchronized(this) {
+            removedMediaIds.add(mediaId)
+            for (index in indices.values) {
+                index.removeForMedia(mediaId)
+            }
         }
     }
 

@@ -699,7 +699,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     val entity = withContext(dispatcher) { database?.mediaDao()?.getMediaById(mediaId) }
                     entity != null && !entity.isDeleted
                 } catch (e: Exception) {
-                    true
+                    if (e is CancellationException) throw e
+                    false
                 }
             }
             scope.launch { try { retriever.initializeIndex(provider.descriptor.primaryType, provider.descriptor) } catch (e: Exception) {} }

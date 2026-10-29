@@ -1,6 +1,7 @@
 package com.example.data.semantic
 
 import com.example.data.MediaItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -107,6 +108,7 @@ class DefaultSemanticIndexingService(
 
             result
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             EmbeddingResult.Failure(
                 errorCode = EmbeddingErrorCode.INFERENCE_ERROR,
                 message = "Indexing failed for media ${item.id}: ${e.message}",
