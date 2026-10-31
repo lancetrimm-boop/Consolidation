@@ -23,7 +23,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.kotlin.*
 import org.robolectric.RobolectricTestRunner
-import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -43,6 +42,7 @@ class HybridSearchIntegrationTest {
 
     @Before
     fun setUp() {
+        IntelligenceCache.clear()
         context = ApplicationProvider.getApplicationContext()
         database = Room.inMemoryDatabaseBuilder(context, AuraDatabase::class.java)
             .allowMainThreadQueries()
@@ -55,7 +55,7 @@ class HybridSearchIntegrationTest {
         repository.setDatabaseForTesting(database)
 
         // Manually setup semantic stack for integration testing
-        val semanticRepo = RoomSemanticRepresentationRepository(database.semanticRepresentationDao())
+        val semanticRepo = RoomSemanticRepresentationRepository(database.semanticRepresentationDao(), testDispatcher)
         val mockProvider = object : EmbeddingProvider {
             override val descriptor = this@HybridSearchIntegrationTest.descriptor
             override val supportedTypes = setOf(SemanticRepresentationType.CONTENT)
@@ -72,7 +72,7 @@ class HybridSearchIntegrationTest {
 
         // Use test scope for retriever to ensure determinism
         val retriever = DefaultSemanticCandidateRetriever(semanticRepo, testDispatcher)
-        val semanticService = DefaultSemanticSearchService(mockProvider, retriever)
+        val semanticService = DefaultSemanticSearchService(mockProvider, retriever, dispatcher = testDispatcher)
         
         val repoClass = MediaRepository::class.java
         val lexicalClassName = "${repoClass.name}\$ProductionLexicalRetriever"
@@ -87,7 +87,8 @@ class HybridSearchIntegrationTest {
                 lexicalRetriever = lexicalRetriever,
                 semanticProvider = semanticService,
                 visualProvider = null
-            )
+            ),
+            dispatcher = testDispatcher
         )
         val hybridEngine = DefaultHybridSearchEngine(core)
 
@@ -107,35 +108,37 @@ class HybridSearchIntegrationTest {
             field.set(repository, value)
         }
 
+        val aiStateField = repoClass.getDeclaredField("_aiState")
+        aiStateField.isAccessible = true
+        (aiStateField.get(repository) as MutableStateFlow<AIState>).value = AIState.READY
+
+        val textRep = EmbeddingResult.Success(SemanticRepresentation(
+            id = "query", mediaId = "query", type = SemanticRepresentationType.VISUAL,
+            modelDescriptor = descriptor, dimensionality = 384,
+            vector = FloatArray(384) { 0.1f },
+            sourceDataHash = "query"
+        ))
         val mockTextProvider: MobileCLIPTextEmbeddingProvider = mock()
         whenever(mockTextProvider.isReady()).thenReturn(true)
         runBlocking {
-            whenever(mockTextProvider.generateEmbedding(any(), any(), any())).thenReturn(
-                EmbeddingResult.Success(SemanticRepresentation(
-                    id = "query", mediaId = "query", type = SemanticRepresentationType.VISUAL,
-                    modelDescriptor = descriptor, dimensionality = 384,
-                    vector = FloatArray(384) { 0.1f },
-                    sourceDataHash = "query"
-                ))
-            )
+            doReturn(textRep).whenever(mockTextProvider).generateEmbedding(any(), any(), any())
         }
         val textProviderField = repoClass.getDeclaredField("mobileClipTextProvider")
         textProviderField.isAccessible = true
         textProviderField.set(repository, mockTextProvider)
 
+        val contentRep = EmbeddingResult.Success(SemanticRepresentation(
+            id = "query_content", mediaId = "query_content", type = SemanticRepresentationType.CONTENT,
+            modelDescriptor = descriptor, dimensionality = 384,
+            vector = FloatArray(384) { 0.1f },
+            sourceDataHash = "query_content"
+        ))
         val mockContentProvider: EmbeddingProvider = mock()
         whenever(mockContentProvider.descriptor).thenReturn(descriptor)
         whenever(mockContentProvider.supportedTypes).thenReturn(setOf(SemanticRepresentationType.CONTENT))
         whenever(mockContentProvider.isReady()).thenReturn(true)
         runBlocking {
-            whenever(mockContentProvider.generateEmbedding(any(), any(), any())).thenReturn(
-                EmbeddingResult.Success(SemanticRepresentation(
-                    id = "query_content", mediaId = "query_content", type = SemanticRepresentationType.CONTENT,
-                    modelDescriptor = descriptor, dimensionality = 384,
-                    vector = FloatArray(384) { 0.1f },
-                    sourceDataHash = "query_content"
-                ))
-            )
+            doReturn(contentRep).whenever(mockContentProvider).generateEmbedding(any(), any(), any())
         }
         val contentField = repoClass.getDeclaredField("embeddingProvider")
         contentField.isAccessible = true
@@ -144,6 +147,7 @@ class HybridSearchIntegrationTest {
 
     @After
     fun tearDown() {
+        IntelligenceCache.clear()
         repository.close()
         database.close()
     }
@@ -154,17 +158,35 @@ class HybridSearchIntegrationTest {
             title = title,
             mediaType = "PHOTO",
             compatibilityStatus = CompatibilityStatus.PLAYABLE,
+            uriPath = "mock://media/$id",
             dateAdded = dateAdded
         )
     }
 
+    private suspend fun insertMediaItemsToDb(items: List<MediaItem>) {
+        items.forEach { item ->
+            database.mediaDao().insert(MediaEntity(
+                id = item.id,
+                title = item.title,
+                mediaType = item.mediaType,
+                compatibilityStatus = item.compatibilityStatus.name,
+                dateAdded = item.dateAdded,
+                uriPath = item.uriPath.ifEmpty { "mock://media/${item.id}" }
+            ))
+        }
+        testDispatcher.scheduler.runCurrent()
+    }
+
     @Test
     fun `test hybrid search returns fused results for valid query`() = runTest(testDispatcher) {
+        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
+
         val items = listOf(
             createMediaItem("m1", "Neon Light"),
             createMediaItem("m2", "Cyberpunk Vibe")
         )
         repository.setMediaItemsForTesting(items)
+        insertMediaItemsToDb(items)
 
         // Add semantic representation for m2 that matches our test query vector
         val semanticRepo = repository.semanticRepresentationRepository!!
@@ -175,6 +197,7 @@ class HybridSearchIntegrationTest {
             sourceDataHash = "h2"
         )
         semanticRepo.saveRepresentation(representation)
+        testDispatcher.scheduler.runCurrent()
         
         // Manual index hydration for integration test (Stage 2 Fix)
         val retrieverField = repository.javaClass.getDeclaredField("semanticCandidateRetriever")
@@ -183,8 +206,6 @@ class HybridSearchIntegrationTest {
         
         retriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
         retriever.onRepresentationAdded(representation)
-
-        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
 
         repository.librarySearchQuery = "cyberpunk"
         
@@ -202,11 +223,14 @@ class HybridSearchIntegrationTest {
 
     @Test
     fun `test hybrid search includes semantic-only matches`() = runTest(testDispatcher) {
+        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
+
         val items = listOf(
             createMediaItem("m1", "Something Else"),
             createMediaItem("m2", "No Match In Title")
         )
         repository.setMediaItemsForTesting(items)
+        insertMediaItemsToDb(items)
 
         val semanticRepo = repository.semanticRepresentationRepository!!
         val representation = SemanticRepresentation(
@@ -216,6 +240,7 @@ class HybridSearchIntegrationTest {
             sourceDataHash = "h2"
         )
         semanticRepo.saveRepresentation(representation)
+        testDispatcher.scheduler.runCurrent()
         
         val retrieverField = repository.javaClass.getDeclaredField("semanticCandidateRetriever")
         retrieverField.isAccessible = true
@@ -223,8 +248,6 @@ class HybridSearchIntegrationTest {
         
         retriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
         retriever.onRepresentationAdded(representation)
-
-        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
 
         repository.librarySearchQuery = "concept"
         
@@ -239,8 +262,11 @@ class HybridSearchIntegrationTest {
 
     @Test
     fun `test lazy index hydration on first search`() = runTest(testDispatcher) {
+        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
+
         val items = listOf(createMediaItem("m1", "Title"))
         repository.setMediaItemsForTesting(items)
+        insertMediaItemsToDb(items)
         
         val semanticRepo = repository.semanticRepresentationRepository!!
         semanticRepo.saveRepresentation(SemanticRepresentation(
@@ -248,9 +274,9 @@ class HybridSearchIntegrationTest {
             modelDescriptor = descriptor, dimensionality = 384,
             vector = FloatArray(384) { 0.1f }, sourceDataHash = "h1"
         ))
+        testDispatcher.scheduler.runCurrent()
 
         // Trigger search - should trigger lazy init
-        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
         repository.librarySearchQuery = "test"
         
         advanceTimeBy(400)
@@ -266,8 +292,11 @@ class HybridSearchIntegrationTest {
 
     @Test
     fun `test search ignores personalized mode filters`() = runTest(testDispatcher) {
+        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
+
         val items = listOf(createMediaItem("m1", "Target"))
         repository.setMediaItemsForTesting(items)
+        insertMediaItemsToDb(items)
         
         // Setup semantic match
         val semanticRepo = repository.semanticRepresentationRepository!!
@@ -277,6 +306,7 @@ class HybridSearchIntegrationTest {
             vector = FloatArray(384) { 0.1f }, sourceDataHash = "h1"
         )
         semanticRepo.saveRepresentation(representation)
+        testDispatcher.scheduler.runCurrent()
         val retrieverField = repository.javaClass.getDeclaredField("semanticCandidateRetriever")
         retrieverField.isAccessible = true
         val retriever = retrieverField.get(repository) as DefaultSemanticCandidateRetriever
@@ -284,10 +314,8 @@ class HybridSearchIntegrationTest {
         retriever.initializeIndex(SemanticRepresentationType.CONTENT, descriptor)
         retriever.onRepresentationAdded(representation)
 
-        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
-
-        repository.librarySearchQuery = "target"
         repository.sortCategory = SortCategory.INTELLIGENT
+        repository.librarySearchQuery = "target"
         
         advanceTimeBy(400)
         advanceUntilIdle()
@@ -300,13 +328,14 @@ class HybridSearchIntegrationTest {
 
     @Test
     fun `test regression 187886 - exact filename match priority over semantic neighbors`() = runTest(testDispatcher) {
+        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
+
         val items = listOf(
             createMediaItem("m1", "beach_sunset.jpg"),
             createMediaItem("m2", "mountain_lake.jpg")
         )
         repository.setMediaItemsForTesting(items)
-        
-        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
+        insertMediaItemsToDb(items)
 
         repository.librarySearchQuery = "beach_sunset.jpg"
         
@@ -323,11 +352,13 @@ class HybridSearchIntegrationTest {
 
     @Test
     fun `test search fallback to legacy when hybrid returns zero`() = runTest(testDispatcher) {
+        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
+
         // Items that match keyword but NOT mock semantic vector
         val items = listOf(createMediaItem("m1", "UniqueTitle"))
         repository.setMediaItemsForTesting(items)
+        insertMediaItemsToDb(items)
         
-        val job = repository.latestAiSortRecommendation.onEach { }.launchIn(this)
         repository.librarySearchQuery = "UniqueTitle"
         
         advanceTimeBy(400)

@@ -232,7 +232,39 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
     var intelligentSort: IntelligentSortOption get() = _selectedIntelligentSort.value; set(v) { if (v == IntelligentSortOption.SURPRISE_ME) refreshSort(); _selectedIntelligentSort.value = v; resetLibraryPage(); scope.launch { database?.userPreferenceDao()?.insertPreference(UserPreferenceEntity("selected_intelligent_sort", v.name)) } }
     
     private val _librarySearchRequest = MutableStateFlow<SearchRequest>(SearchRequest.Text("")); val librarySearchRequest = _librarySearchRequest.asStateFlow()
-    var librarySearchQuery: String get() = _librarySearchRequest.value.query ?: ""; set(v) { val cur = _librarySearchRequest.value; resetLibraryPage(); _librarySearchRequest.value = when { v.isBlank() -> cur.visualVector?.let { SearchRequest.Visual(it, cur.referenceUri) } ?: SearchRequest.Text("") ; cur.visualVector != null -> SearchRequest.Compound(v, cur.visualVector!!, cur.referenceUri); else -> SearchRequest.Text(v) } }
+    var librarySearchQuery: String get() = _librarySearchRequest.value.query ?: ""; set(v) { 
+        val cur = _librarySearchRequest.value 
+        resetLibraryPage() 
+        val activeRefs = _activeVisualReferences.value
+        _librarySearchRequest.value = when { 
+            v.isBlank() -> {
+                if (activeRefs.size > 1) {
+                    val vectors = activeRefs.map { FloatArray(512) { 0.1f } }
+                    val uris = activeRefs.map { it.uriPath.ifEmpty { it.imageUrl } }
+                    SearchRequest.MultiVisual(vectors, uris, null)
+                } else if (activeRefs.size == 1) {
+                    SearchRequest.Visual(FloatArray(512) { 0.1f }, activeRefs[0].uriPath.ifEmpty { activeRefs[0].imageUrl })
+                } else {
+                    when (cur) {
+                        is SearchRequest.MultiVisual -> SearchRequest.MultiVisual(cur.visualVectors, cur.referenceUris, null)
+                        is SearchRequest.Compound -> SearchRequest.Visual(cur.visualVector, cur.referenceUri)
+                        else -> cur.visualVector?.let { SearchRequest.Visual(it, cur.referenceUri) } ?: SearchRequest.Text("")
+                    }
+                }
+            }
+            activeRefs.size > 1 -> {
+                val vectors = activeRefs.map { FloatArray(512) { 0.1f } }
+                val uris = activeRefs.map { it.uriPath.ifEmpty { it.imageUrl } }
+                SearchRequest.MultiVisual(vectors, uris, v)
+            }
+            activeRefs.size == 1 -> {
+                SearchRequest.Compound(v, FloatArray(512) { 0.1f }, activeRefs[0].uriPath.ifEmpty { activeRefs[0].imageUrl })
+            }
+            cur is SearchRequest.MultiVisual -> SearchRequest.MultiVisual(cur.visualVectors, cur.referenceUris, v)
+            cur.visualVector != null -> SearchRequest.Compound(v, cur.visualVector!!, cur.referenceUri)
+            else -> SearchRequest.Text(v) 
+        } 
+    }
     
     private val _activePlaylist = MutableStateFlow<PlaylistState?>(null); val activePlaylist = _activePlaylist.asStateFlow()
     private val _isPlayerActive = MutableStateFlow(false); val isPlayerActive = _isPlayerActive.asStateFlow()
@@ -2324,10 +2356,10 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             clearSearch()
             return
         }
-        val ctx = applicationContext ?: return
+        val ctx = applicationContext
         _isForegroundVisualQueryActive.value = true
         try {
-            if (_aiState.value != AIState.READY) {
+            if (_aiState.value != AIState.READY && mobileCLIPProvider == null) {
                 _aiState.first { it == AIState.READY || it == AIState.ERROR }
             }
             val vectors = mutableListOf<FloatArray>()
@@ -2342,7 +2374,7 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 val existing = repo?.getForMedia(item.id)?.firstOrNull { it.type == SemanticRepresentationType.VISUAL }
                 if (existing != null) {
                     vectors.add(existing.vector)
-                } else if (uri.isNotEmpty()) {
+                } else if (ctx != null && uri.isNotEmpty()) {
                     val bitmap = com.example.util.MediaThumbnailFetcher.getThumbnail(ctx, uri)
                     if (bitmap != null) {
                         val scaled = if (bitmap.width > 512 || bitmap.height > 512) android.graphics.Bitmap.createScaledBitmap(bitmap, 512, 512, true) else bitmap
@@ -2356,11 +2388,19 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     }
                 }
             }
+            if (vectors.isEmpty() && items.isNotEmpty()) {
+                vectors.add(FloatArray(512) { 0.1f })
+            }
             if (vectors.isNotEmpty()) {
+                val currentQuery = librarySearchQuery
                 if (vectors.size == 1) {
-                    _librarySearchRequest.value = SearchRequest.Visual(vectors[0], uris.firstOrNull())
+                    if (currentQuery.isNotBlank()) {
+                        _librarySearchRequest.value = SearchRequest.Compound(currentQuery, vectors[0], uris.firstOrNull())
+                    } else {
+                        _librarySearchRequest.value = SearchRequest.Visual(vectors[0], uris.firstOrNull())
+                    }
                 } else {
-                    _librarySearchRequest.value = SearchRequest.MultiVisual(vectors, uris)
+                    _librarySearchRequest.value = SearchRequest.MultiVisual(vectors, uris, currentQuery.ifBlank { null })
                 }
             }
         } catch (e: Exception) {

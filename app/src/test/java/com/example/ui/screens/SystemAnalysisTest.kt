@@ -3,26 +3,45 @@ package com.example.ui.screens
 import com.example.data.*
 import com.example.data.db.*
 import com.example.data.blueprint.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * Unit tests for System Analysis logic in IntelligenceViewModel.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
+@OptIn(ExperimentalCoroutinesApi::class)
 class SystemAnalysisTest {
 
+    private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: IntelligenceViewModel
     private lateinit var fakeDao: FakeIntelligenceDao
     private lateinit var repository: IntelligenceRepository
 
     @Before
     fun setup() {
+        Dispatchers.setMain(testDispatcher)
         fakeDao = FakeIntelligenceDao()
         repository = IntelligenceRepository(fakeDao)
         viewModel = IntelligenceViewModel(repository)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
     }
 
     @Test

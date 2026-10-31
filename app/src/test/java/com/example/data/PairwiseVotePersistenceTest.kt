@@ -53,6 +53,7 @@ class PairwiseVotePersistenceTest {
             duration = "",
             genre = "Media",
             compatibilityStatus = CompatibilityStatus.PLAYABLE,
+            uriPath = "mock://media/$id",
             rating = 5f,
             eloRating = 1500.0
         )
@@ -62,7 +63,7 @@ class PairwiseVotePersistenceTest {
     fun testVotePersistenceAndSequencing() = runTest(testDispatcher) {
         val items = listOf("A", "B", "C", "D", "E").map { createMediaItem(it) }
         repository.setMediaItemsForTesting(items)
-        items.forEach { database.mediaDao().insert(MediaEntity(id = it.id, title = it.title, mediaType = "PHOTO", compatibilityStatus = "PLAYABLE", rating = 5f, eloRating = 1500.0)) }
+        items.forEach { database.mediaDao().insert(MediaEntity(id = it.id, title = it.title, mediaType = "PHOTO", compatibilityStatus = "PLAYABLE", rating = 5f, uriPath = it.uriPath, eloRating = 1500.0)) }
         
         repository.startCompareSelectionSession(setOf("A", "B", "C", "D", "E"))
         testDispatcher.scheduler.advanceUntilIdle()
@@ -84,7 +85,7 @@ class PairwiseVotePersistenceTest {
     fun testPersistenceFailure_DoesNotAdvanceAndDoesNotIncrementCount() = runTest(testDispatcher) {
         val items = (1..6).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(items)
-        items.forEach { database.mediaDao().insert(MediaEntity(id = it.id, title = it.title, mediaType = "PHOTO", compatibilityStatus = "PLAYABLE", rating = 5f, eloRating = 1500.0)) }
+        items.forEach { database.mediaDao().insert(MediaEntity(id = it.id, title = it.title, mediaType = "PHOTO", compatibilityStatus = "PLAYABLE", rating = 5f, uriPath = it.uriPath, eloRating = 1500.0)) }
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4", "5", "6"))
         testDispatcher.scheduler.advanceUntilIdle()
 
@@ -94,6 +95,8 @@ class PairwiseVotePersistenceTest {
 
         // Close exposure repository and database to simulate persistence failure safely
         repository.exposureRepository?.close()
+        repository.resetTestingState()
+        repository.close()
         database.close()
 
         // Attempt to vote
@@ -110,7 +113,7 @@ class PairwiseVotePersistenceTest {
     fun testEloRatingUpdateAndPersistence() = runTest(testDispatcher) {
         val items = listOf("A", "B", "C", "D", "E").map { createMediaItem(it) }
         repository.setMediaItemsForTesting(items)
-        items.forEach { database.mediaDao().insert(MediaEntity(id = it.id, title = it.title, mediaType = "PHOTO", compatibilityStatus = "PLAYABLE", rating = 5f, eloRating = 1500.0)) }
+        items.forEach { database.mediaDao().insert(MediaEntity(id = it.id, title = it.title, mediaType = "PHOTO", compatibilityStatus = "PLAYABLE", rating = 5f, uriPath = it.uriPath, eloRating = 1500.0)) }
         
         repository.startCompareSelectionSession(setOf("A", "B", "C", "D", "E"))
         testDispatcher.scheduler.advanceUntilIdle()

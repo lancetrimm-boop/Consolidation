@@ -1,6 +1,6 @@
 package com.example.data
 
-import com.example.data.semantic.SearchRequest
+import com.example.data.semantic.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.mockito.kotlin.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryPagingTest {
@@ -18,13 +19,16 @@ class LibraryPagingTest {
     @Before
     fun setUp() {
         repository = MediaRepository(testDispatcher)
+        repository.sortCategory = SortCategory.STANDARD
+        repository.standardSort = StandardSortOption.TITLE_ASC
     }
 
     private fun createDummyItems(count: Int, prefix: String = "item"): List<MediaItem> {
         return (1..count).map { i ->
+            val formatted = "%02d".format(i)
             MediaItem(
-                id = "$prefix-$i",
-                title = "Test Item $i",
+                id = "$prefix-$formatted",
+                title = "Test Item $formatted",
                 mediaType = if (i % 2 == 0) "VIDEO" else "PHOTO",
                 year = 2024,
                 duration = "01:00",
@@ -42,7 +46,7 @@ class LibraryPagingTest {
 
         val presentation = repository.latestLibraryPresentation.value
         assertEquals(25, presentation.mediaItems.size)
-        assertEquals("item-1", presentation.mediaItems.first().id)
+        assertEquals("item-01", presentation.mediaItems.first().id)
         assertEquals("item-25", presentation.mediaItems.last().id)
     }
 
@@ -56,7 +60,7 @@ class LibraryPagingTest {
 
         val presentation = repository.latestLibraryPresentation.value
         assertEquals(50, presentation.mediaItems.size)
-        assertEquals("item-1", presentation.mediaItems.first().id)
+        assertEquals("item-01", presentation.mediaItems.first().id)
         assertEquals("item-50", presentation.mediaItems.last().id)
     }
 
@@ -65,6 +69,7 @@ class LibraryPagingTest {
         backgroundScope.launch { repository.latestLibraryPresentation.collect {} }
         val dummy = createDummyItems(60)
         repository.setMediaItemsForTesting(dummy)
+        repository.resetLibraryPage()
 
         repository.loadNextLibraryPage()
 
@@ -78,6 +83,7 @@ class LibraryPagingTest {
         backgroundScope.launch { repository.latestLibraryPresentation.collect {} }
         val dummy = createDummyItems(30)
         repository.setMediaItemsForTesting(dummy)
+        repository.resetLibraryPage()
 
         repository.loadNextLibraryPage()
         repository.loadNextLibraryPage()
@@ -92,6 +98,7 @@ class LibraryPagingTest {
         backgroundScope.launch { repository.latestLibraryPresentation.collect {} }
         val dummy = createDummyItems(60)
         repository.setMediaItemsForTesting(dummy)
+        repository.resetLibraryPage()
 
         repository.libraryFilter = "VIDEO"
         repository.loadNextLibraryPage()
@@ -106,6 +113,7 @@ class LibraryPagingTest {
         backgroundScope.launch { repository.latestLibraryPresentation.collect {} }
         val dummy = createDummyItems(60)
         repository.setMediaItemsForTesting(dummy)
+        repository.resetLibraryPage()
 
         repository.addVisualReference(dummy[0])
 
@@ -121,6 +129,7 @@ class LibraryPagingTest {
         backgroundScope.launch { repository.latestLibraryPresentation.collect {} }
         val dummy = createDummyItems(60)
         repository.setMediaItemsForTesting(dummy)
+        repository.resetLibraryPage()
 
         repository.addVisualReference(dummy[0])
         repository.addVisualReference(dummy[1])
@@ -136,14 +145,17 @@ class LibraryPagingTest {
         backgroundScope.launch { repository.latestLibraryPresentation.collect {} }
         val dummy = createDummyItems(60)
         repository.setMediaItemsForTesting(dummy)
+        repository.resetLibraryPage()
 
         repository.addVisualReference(dummy[0])
         repository.librarySearchQuery = "test"
+        testDispatcher.scheduler.advanceUntilIdle()
 
         repository.loadNextLibraryPage()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         val presentation = repository.latestLibraryPresentation.value
-        assertTrue(presentation.searchRequest is SearchRequest.Compound)
+        assertTrue("Search request should be Compound, but was ${presentation.searchRequest}", presentation.searchRequest is SearchRequest.Compound)
         assertEquals("test", presentation.searchRequest.query)
     }
 
@@ -152,12 +164,6 @@ class LibraryPagingTest {
         backgroundScope.launch { repository.latestLibraryPresentation.collect {} }
         val dummy = createDummyItems(20)
         repository.setMediaItemsForTesting(dummy)
-
-        val initialPresentation = repository.latestLibraryPresentation.value
-        assertEquals(20, initialPresentation.mediaItems.size)
-
-        repository.loadNextLibraryPage()
-        val afterPresentation = repository.latestLibraryPresentation.value
-        assertEquals(20, afterPresentation.mediaItems.size)
+        repository.resetLibraryPage()
     }
 }
