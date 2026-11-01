@@ -68,5 +68,8 @@ class CollectionsScreenTest {
 
         // Verify Recently Viewed smart collection is strictly ABSENT from Collections screen
         composeTestRule.onNodeWithText("Recently Viewed").assertDoesNotExist()
+
+        // Drain and wait for all Compose recomposer coroutines on Dispatchers.Main
+        composeTestRule.waitForIdle()
     }
 }

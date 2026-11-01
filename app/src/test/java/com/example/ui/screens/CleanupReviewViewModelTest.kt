@@ -40,7 +40,7 @@ class CleanupReviewViewModelTest {
         
         // Mock media items
         val items = listOf(
-            MediaItem(id = "1", title = "Forgotten", mediaType = "PHOTO", exposureCount = 50, viewCount = 0, sizeBytes = 5000L)
+            MediaItem(id = "1", title = "Forgotten", mediaType = "PHOTO", rating = 1.0f, exposureCount = 50, viewCount = 0, sizeBytes = 5000L)
         )
         repository.setMediaItemsForTesting(items)
         

@@ -14,6 +14,7 @@ class PlaybackExposureTracker(
 ) {
     private var hasStarted = false
     private var hasCompleted = false
+    private val recordedMilestones = mutableSetOf<Int>()
 
     /**
      * Updates video playback progress.
@@ -47,7 +48,8 @@ class PlaybackExposureTracker(
         // 2. PLAYBACK_PROGRESS milestones (25%, 50%, 75%)
         val progressRatio = currentPositionMs.toDouble() / durationMs.toDouble()
 
-        if (progressRatio >= 0.25) {
+        if (progressRatio >= 0.25 && !recordedMilestones.contains(25)) {
+            recordedMilestones.add(25)
             exposureRepository.recordEvent(
                 mediaId = mediaId,
                 eventType = ExposureEventType.PLAYBACK_PROGRESS,
@@ -56,7 +58,8 @@ class PlaybackExposureTracker(
                 durationMs = durationMs
             )
         }
-        if (progressRatio >= 0.50) {
+        if (progressRatio >= 0.50 && !recordedMilestones.contains(50)) {
+            recordedMilestones.add(50)
             exposureRepository.recordEvent(
                 mediaId = mediaId,
                 eventType = ExposureEventType.PLAYBACK_PROGRESS,
@@ -65,7 +68,8 @@ class PlaybackExposureTracker(
                 durationMs = durationMs
             )
         }
-        if (progressRatio >= 0.75) {
+        if (progressRatio >= 0.75 && !recordedMilestones.contains(75)) {
+            recordedMilestones.add(75)
             exposureRepository.recordEvent(
                 mediaId = mediaId,
                 eventType = ExposureEventType.PLAYBACK_PROGRESS,

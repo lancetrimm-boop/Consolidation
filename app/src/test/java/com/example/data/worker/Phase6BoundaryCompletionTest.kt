@@ -11,6 +11,8 @@ import com.example.core.mediamodel.ClassifiedMediaItem
 import com.example.core.mediamodel.IneligibilityReason
 import com.example.core.mediamodel.TestStatus
 import com.example.data.MediaItem
+import com.example.data.TasteDNA
+import com.example.data.IntelligenceStats
 import com.example.data.mediastore.DefaultDiagnosticMediaStore
 import com.example.data.mediastore.DefaultPresentationMediaStore
 import com.example.data.mediastore.IneligibleMediaEntry
@@ -21,14 +23,19 @@ import com.example.data.entitlement.EntitlementRepository
 import com.example.data.entitlement.ProFeature
 import com.example.data.entitlement.ProState
 import com.example.data.MediaRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.mockito.Mockito.*
+import org.mockito.kotlin.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class Phase6BoundaryCompletionTest {
@@ -171,41 +178,50 @@ class Phase6BoundaryCompletionTest {
 
     @Test
     fun testCleanupViewModel_OnlySeesDiagnosticMediaStoreData() = runTest {
-        val testDispatcher = UnconfinedTestDispatcher()
+        val testDispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(testDispatcher)
+        try {
+            val mockRepo = mock(MediaRepository::class.java)
+            val mockEntitlementRepo = mock(EntitlementRepository::class.java)
 
-        val mockRepo = mock(MediaRepository::class.java)
-        val mockEntitlementRepo = mock(EntitlementRepository::class.java)
+            `when`(mockRepo.diagnosticMediaStore).thenReturn(diagnosticStore)
+            `when`(mockRepo.databaseState).thenReturn(MutableStateFlow(com.example.data.DatabaseState.READY))
+            `when`(mockRepo.mediaItems).thenReturn(MutableStateFlow(emptyList()))
+            `when`(mockRepo.tasteDNA).thenReturn(MutableStateFlow(TasteDNA()))
+            `when`(mockRepo.intelligenceStats).thenReturn(MutableStateFlow(IntelligenceStats()))
+            whenever(mockRepo.getSkipCounts(anyList())).thenReturn(emptyMap<String, Int>())
+            `when`(mockEntitlementRepo.proState).thenReturn(MutableStateFlow(ProState.Pro()))
+            `when`(mockEntitlementRepo.isFeatureAvailable(ProFeature.CLEANUP_AUTOMATION)).thenReturn(true)
 
-        `when`(mockRepo.diagnosticMediaStore).thenReturn(diagnosticStore)
-        `when`(mockRepo.databaseState).thenReturn(MutableStateFlow(com.example.data.DatabaseState.READY))
-        `when`(mockEntitlementRepo.proState).thenReturn(MutableStateFlow(ProState.Pro()))
-        `when`(mockEntitlementRepo.isFeatureAvailable(ProFeature.CLEANUP_AUTOMATION)).thenReturn(true)
+            val entry = IneligibleMediaEntry(
+                id = "diag_1",
+                filePath = "file://corrupt.mp4",
+                title = "Corrupt File",
+                sizeBytes = 2048L,
+                reasons = setOf(IneligibilityReason.CORRUPT, IneligibilityReason.INACCESSIBLE),
+                detectedAtEpochMs = 10000L
+            )
+            diagnosticStore.recordIneligible(entry)
 
-        val entry = IneligibleMediaEntry(
-            id = "diag_1",
-            filePath = "file://corrupt.mp4",
-            title = "Corrupt File",
-            sizeBytes = 2048L,
-            reasons = setOf(IneligibilityReason.CORRUPT, IneligibilityReason.INACCESSIBLE),
-            detectedAtEpochMs = 10000L
-        )
-        diagnosticStore.recordIneligible(entry)
+            val viewModel = CleanupReviewViewModel(
+                repository = mockRepo,
+                entitlementRepository = mockEntitlementRepo,
+                backgroundDispatcher = testDispatcher,
+                diagnosticMediaStore = diagnosticStore
+            )
 
-        val viewModel = CleanupReviewViewModel(
-            repository = mockRepo,
-            entitlementRepository = mockEntitlementRepo,
-            backgroundDispatcher = testDispatcher,
-            diagnosticMediaStore = diagnosticStore
-        )
+            viewModel.loadRecommendations()
+            testDispatcher.scheduler.advanceUntilIdle()
 
-        viewModel.loadRecommendations()
-
-        val state = viewModel.uiState.value
-        assertEquals(1, state.recommendations.size)
-        val rec = state.recommendations[0]
-        assertEquals("diag_1", rec.mediaId)
-        assertEquals(2048L, rec.storageSize)
-        assertTrue(rec.explanation.contains("CORRUPT"))
-        assertTrue(rec.explanation.contains("INACCESSIBLE"))
+            val state = viewModel.uiState.value
+            assertEquals(1, state.recommendations.size)
+            val rec = state.recommendations[0]
+            assertEquals("diag_1", rec.mediaId)
+            assertEquals(2048L, rec.storageSize)
+            assertTrue(rec.explanation.contains("CORRUPT"))
+            assertTrue(rec.explanation.contains("INACCESSIBLE"))
+        } finally {
+            Dispatchers.resetMain()
+        }
     }
 }

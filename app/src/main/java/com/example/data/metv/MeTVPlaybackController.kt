@@ -63,6 +63,7 @@ class MeTVPlaybackController(
                     // Record metric & log rejection
                     _rejectionCount.value++
                     com.example.core.mediagate.EligibilityMetricsTracker.recordGate2Rejected()
+                    presentationMediaStore.revoke(candidate.mediaId, check.reasons)
                     // Candidate removed from queue by poll() above
                     // Replenish queue and immediately try next candidate silently
                     replenishQueue()
@@ -83,9 +84,10 @@ class MeTVPlaybackController(
                     val state = MeTVPlaybackState.Playing(candidate, check.token)
                     _playbackState.value = state
                     return state
-                } else {
+                } else if (check is MediaConsumptionGate.ConsumptionCheckResult.Rejected) {
                     _rejectionCount.value++
                     com.example.core.mediagate.EligibilityMetricsTracker.recordGate2Rejected()
+                    presentationMediaStore.revoke(candidate.mediaId, check.reasons)
                 }
             }
         }

@@ -861,11 +861,20 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 if (item.isDeleted || item.itemCount != null) return@filter false
                 isItemEligibleForCandidates(item) && isItemVisibleInLibrary(item) && (item.uriPath.isNotBlank() || item.imageUrl.isNotBlank() || item.id.isNotBlank())
             }
+            val curSession = _compareSelectionSession.value
+            if (curSession.isActive && curSession.isComplete) {
+                _pairwiseState.value = PairwiseComparison("p_empty", _pairwiseState.value.roundNumber, 50, emptyMediaItem, emptyMediaItem)
+                preFetchedPair = null
+                return@launch
+            }
+
             if (eligible.size < 2) { 
                 _pairwiseState.value = PairwiseComparison("p_empty", _pairwiseState.value.roundNumber, 50, emptyMediaItem, emptyMediaItem)
                 preFetchedPair = null
-                if (session.isActive && !session.isComplete) {
-                    _compareSelectionSession.update { it.copy(isComplete = true, completionReason = "Fewer than 2 eligible items remain.") }
+                _compareSelectionSession.update { cur ->
+                    if (cur.isActive && !cur.isComplete) {
+                        cur.copy(isComplete = true, completionReason = "Fewer than 2 eligible items remain.")
+                    } else cur
                 }
                 return@launch 
             }
@@ -881,7 +890,14 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
             var selectedPair: Pair<MediaItem, MediaItem>? = null
             if (shouldAdvance && preFetchedPair != null) {
                 val candidate = preFetchedPair!!
-                if (context == null || (isUriAccessible(context, candidate.first.uriPath) && isUriAccessible(context, candidate.second.uriPath))) {
+                val inEligible = eligible.any { it.id == candidate.first.id } && eligible.any { it.id == candidate.second.id }
+                val isVidA = candidate.first.mediaType.equals("VIDEO", true) || candidate.first.mediaType.equals("MOVIE", true) || candidate.first.mediaType.startsWith("VIDEO", true) || candidate.first.mediaType.startsWith("MOVIE", true)
+                val isVidB = candidate.second.mediaType.equals("VIDEO", true) || candidate.second.mediaType.equals("MOVIE", true) || candidate.second.mediaType.startsWith("VIDEO", true) || candidate.second.mediaType.startsWith("MOVIE", true)
+                val matchesFilter = when (mediaTypeFilter) {
+                    CompareMediaTypeFilter.PHOTOS -> !isVidA && !isVidB
+                    CompareMediaTypeFilter.VIDEOS -> isVidA && isVidB
+                }
+                if (inEligible && matchesFilter && (context == null || (isUriAccessible(context, candidate.first.uriPath) && isUriAccessible(context, candidate.second.uriPath)))) {
                     selectedPair = candidate
                 }
                 preFetchedPair = null
@@ -918,7 +934,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     DiscoveryPolicyManager.resolveStrategy(_discoveryPolicy.value, _userIntent.value, RecommendationObjective.RANKING_REFINEMENT, discoveryState, _tasteDNA.value, _preferenceProfile.value), 
                     _tasteDNA.value, 
                     _creatorProfiles.value, 
-                    _compareStrategy.value
+                    _compareStrategy.value,
+                    strictNonRepetition = session.isActive
                 )
                 if (rawPair != null && context != null) {
                     if (!isUriAccessible(context, rawPair.first.uriPath)) {
@@ -978,7 +995,8 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                     DiscoveryPolicyManager.resolveStrategy(_discoveryPolicy.value, _userIntent.value, RecommendationObjective.RANKING_REFINEMENT, discoveryState, _tasteDNA.value, _preferenceProfile.value), 
                     _tasteDNA.value, 
                     _creatorProfiles.value, 
-                    _compareStrategy.value
+                    _compareStrategy.value,
+                    strictNonRepetition = session.isActive
                 )
                 if (nextPair != null && (nextPair.first.id != _pairwiseState.value.optionA.id || nextPair.second.id != _pairwiseState.value.optionB.id)) {
                     preFetchedPair = nextPair
@@ -2447,7 +2465,11 @@ class MediaRepository(val dispatcher: CoroutineDispatcher = Dispatchers.IO) {
                 val itemVolume = extractVolumeFromUri(item.uriPath)
                 val itemType = item.mediaType // "PHOTO" or "VIDEO"
                 
-                val isVolumeVerified = itemVolume != null && (scannedVolumes.contains(itemVolume) || scannedVolumes.contains("external") || scannedVolumes.contains("external_primary"))
+                val isVolumeVerified = itemVolume != null && (
+                    scannedVolumes.contains(itemVolume) ||
+                    ((itemVolume == "external" || itemVolume == "external_primary") && 
+                     (scannedVolumes.contains("external") || scannedVolumes.contains("external_primary")))
+                )
                 val isTypeVerified = scannedMediaTypes.contains(itemType)
 
                 if (isVolumeVerified && isTypeVerified) {

@@ -224,7 +224,18 @@ object RecommendationEngine {
                 )
                 val response = core.processRequest(req)
                 if (response.isSuccess && response.candidates.isNotEmpty()) {
-                    return response.candidates.map { it.item to it.rankScore.toFloat() }
+                    val rawCandidates = response.candidates.map { it.item to it.rankScore.toFloat() }
+                    if (compareSort != CompareSortOption.RECOMMENDED && compareStrategy == CompareStrategy.PERSONALIZED) {
+                        val reSorted = when (compareSort) {
+                            CompareSortOption.NEWEST -> rawCandidates.sortedByDescending { it.first.dateAdded }
+                            CompareSortOption.OLDEST -> rawCandidates.sortedBy { it.first.dateAdded }
+                            CompareSortOption.LARGEST_FILES -> rawCandidates.sortedByDescending { it.first.sizeBytes }
+                            CompareSortOption.SMALLEST_FILES -> rawCandidates.sortedBy { it.first.sizeBytes }
+                            else -> rawCandidates
+                        }
+                        return reSorted
+                    }
+                    return rawCandidates
                 }
             } catch (e: Exception) {
                 android.util.Log.w("RecommendationEngine", "IntelligenceCore processRequest failed, using fallback pool", e)
@@ -247,14 +258,19 @@ object RecommendationEngine {
             if (sessionIds.isEmpty()) true else sessionIds.contains(it.id)
         }
         
-        val sortedPool = when (compareStrategy) {
-            CompareStrategy.REDISCOVER -> basePool.sortedByDescending { it.rating }
-            CompareStrategy.LEAST_INTERACTED -> basePool.sortedBy { it.viewCount }
-            CompareStrategy.EXPLORE -> basePool.shuffled(java.util.Random(seed))
-            else -> when (compareSort) {
+        val sortedPool = if (compareSort != CompareSortOption.RECOMMENDED) {
+            when (compareSort) {
                 CompareSortOption.NEWEST -> basePool.sortedByDescending { it.dateAdded }
                 CompareSortOption.OLDEST -> basePool.sortedBy { it.dateAdded }
                 CompareSortOption.LARGEST_FILES -> basePool.sortedByDescending { it.sizeBytes }
+                CompareSortOption.SMALLEST_FILES -> basePool.sortedBy { it.sizeBytes }
+                else -> basePool
+            }
+        } else {
+            when (compareStrategy) {
+                CompareStrategy.REDISCOVER -> basePool.sortedByDescending { it.rating }
+                CompareStrategy.LEAST_INTERACTED -> basePool.sortedBy { it.viewCount }
+                CompareStrategy.EXPLORE -> basePool.shuffled(java.util.Random(seed))
                 else -> basePool.sortedByDescending { it.rating }
             }
         }
@@ -272,7 +288,8 @@ object RecommendationEngine {
         strategy: RecommendationStrategy? = null,
         tasteDNA: TasteDNA = TasteDNA(),
         creatorProfiles: Map<String, CreatorProfile> = emptyMap(),
-        compareStrategy: CompareStrategy = CompareStrategy.PERSONALIZED
+        compareStrategy: CompareStrategy = CompareStrategy.PERSONALIZED,
+        strictNonRepetition: Boolean = false
     ): Pair<MediaItem, MediaItem>? {
         val filteredPool = top100Pool.filter { (item, _) ->
             val type = item.mediaType.uppercase()
@@ -308,11 +325,14 @@ object RecommendationEngine {
                 val exactPairRepeat = recentPairs.any {
                     (it.first == itemA.id && it.second == itemB.id) || (it.first == itemB.id && it.second == itemA.id)
                 }
+                if (strictNonRepetition && exactPairRepeat) {
+                    continue
+                }
                 val repetitionPenalty = if (exactPairRepeat) 100.0f else 0.0f
 
                 val recentCountA = recentItemIds.count { it == itemA.id }
                 val recentCountB = recentItemIds.count { it == itemB.id }
-                val itemRepetitionPenalty = (recentCountA + recentCountB) * 15.0f
+                val itemRepetitionPenalty = (recentCountA + recentCountB) * 50.0f
 
                 val totalValue = avgRelevance + infoValue + diversity - repetitionPenalty - itemRepetitionPenalty + (random.nextFloat() * 0.5f)
 

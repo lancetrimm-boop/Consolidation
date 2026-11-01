@@ -1,7 +1,12 @@
 package com.example.data
 
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import com.example.data.db.AuraDatabase
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -17,11 +22,21 @@ import org.robolectric.annotation.Config
 class CompareSelectionSessionTest {
 
     private lateinit var repository: MediaRepository
-    private val testDispatcher = UnconfinedTestDispatcher()
+    private lateinit var database: AuraDatabase
+    private lateinit var context: Context
+    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        database = Room.inMemoryDatabaseBuilder(context, AuraDatabase::class.java)
+            .allowMainThreadQueries()
+            .setQueryExecutor(testDispatcher.asExecutor())
+            .setTransactionExecutor(testDispatcher.asExecutor())
+            .build()
+
         repository = MediaRepository(testDispatcher)
+        repository.setDatabaseForTesting(database)
     }
 
     @org.junit.After
@@ -29,9 +44,12 @@ class CompareSelectionSessionTest {
         if (::repository.isInitialized) {
             repository.close()
         }
+        if (::database.isInitialized) {
+            database.close()
+        }
     }
 
-    private fun createMediaItem(id: String, title: String = "Item $id", mediaType: String = "PHOTO", sizeBytes: Long = 1000L, dateAdded: Long = System.currentTimeMillis(), rating: Float = 0f, eloRating: Double = 1500.0): MediaItem {
+    private fun createMediaItem(id: String, title: String = "Item $id", mediaType: String = "PHOTO", sizeBytes: Long = 1000L, dateAdded: Long = System.currentTimeMillis(), rating: Float = 0f, eloRating: Double = 1500.0, uriPath: String = "mock://item/$id"): MediaItem {
         return MediaItem(
             id = id,
             title = title,
@@ -43,12 +61,13 @@ class CompareSelectionSessionTest {
             dateAdded = dateAdded,
             sizeBytes = sizeBytes,
             rating = rating,
-            eloRating = eloRating
+            eloRating = eloRating,
+            uriPath = uriPath
         )
     }
 
     @Test
-    fun testSelectionThreshold() = runTest {
+    fun testSelectionThreshold() = runTest(testDispatcher) {
         val allItems = (1..10).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(allItems)
 
@@ -66,6 +85,7 @@ class CompareSelectionSessionTest {
 
         // 4 items
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
         assertTrue("Session should be enabled for 4 items", repository.compareSelectionSession.value.isActive)
         repository.exitCompareSelectionSession()
 
@@ -75,7 +95,7 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testCandidateIsolation() = runTest {
+    fun testCandidateIsolation() = runTest(testDispatcher) {
         val allItems = listOf(
             createMediaItem("1"),
             createMediaItem("2"),
@@ -97,7 +117,7 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testIsolationAfterLoop() = runTest {
+    fun testIsolationAfterLoop() = runTest(testDispatcher) {
         // [PHASE 2] Ensure items have ratings so they are eligible for REDISCOVER strategy
         val allItems = (1..10).map { createMediaItem(it.toString(), rating = 5f) }
         repository.setMediaItemsForTesting(allItems)
@@ -126,6 +146,7 @@ class CompareSelectionSessionTest {
 
         // Sort change
         repository.setCompareSort(CompareSortOption.LARGEST_FILES)
+        advanceUntilIdle()
         assertTrue(selectedIds.contains(repository.pairwiseState.value.optionA.id))
         assertTrue(selectedIds.contains(repository.pairwiseState.value.optionB.id))
 
@@ -149,7 +170,7 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testMediaTypeFilters() = runTest {
+    fun testMediaTypeFilters() = runTest(testDispatcher) {
         val allItems = listOf(
             createMediaItem("1", mediaType = "PHOTO"),
             createMediaItem("2", mediaType = "PHOTO"),
@@ -159,6 +180,7 @@ class CompareSelectionSessionTest {
         repository.setMediaItemsForTesting(allItems)
         
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
         
         // PHOTOS
         repository.setCompareMediaType(CompareMediaTypeFilter.PHOTOS)
@@ -176,7 +198,7 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testStrategies_And_Sorts_Consistency() = runTest {
+    fun testStrategies_And_Sorts_Consistency() = runTest(testDispatcher) {
         val allItems = listOf(
             createMediaItem("1", sizeBytes = 100L, rating = 5f, dateAdded = 1000L),
             createMediaItem("2", sizeBytes = 200L, rating = 4f, dateAdded = 2000L),
@@ -185,6 +207,7 @@ class CompareSelectionSessionTest {
         )
         repository.setMediaItemsForTesting(allItems)
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
 
         // Sort: LARGEST_FILES -> Pool should be [4, 3, 2, 1]
         repository.setCompareSort(CompareSortOption.LARGEST_FILES)
@@ -217,13 +240,16 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testVoting_Stats_Updates() = runTest {
+    fun testVoting_Stats_Updates() = runTest(testDispatcher) {
         val allItems = (1..6).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(allItems)
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
+        advanceUntilIdle()
         
         val winnerId = repository.pairwiseState.value.optionA.id
         repository.recordCompareSelectionVote(winnerId)
+        advanceUntilIdle()
         
         val session = repository.compareSelectionSession.value
         assertEquals(2, session.roundNumber)
@@ -231,12 +257,15 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testSkip_NoMutation() = runTest {
+    fun testSkip_NoMutation() = runTest(testDispatcher) {
         val allItems = (1..6).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(allItems)
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
+        advanceUntilIdle()
         
         repository.skipCompareSelectionPair()
+        advanceUntilIdle()
         
         val session = repository.compareSelectionSession.value
         assertEquals(2, session.roundNumber)
@@ -246,10 +275,12 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testCompletion_PairExhaustion() = runTest {
+    fun testCompletion_PairExhaustion() = runTest(testDispatcher) {
         val allItems = (1..4).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(allItems)
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
+        advanceUntilIdle()
         
         // 4 items = 6 pairs.
         repeat(6) {
@@ -262,7 +293,7 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testCompletion_DeletionExhaustion() = runTest {
+    fun testCompletion_DeletionExhaustion() = runTest(testDispatcher) {
         val allItems = mutableListOf(
             createMediaItem("1"),
             createMediaItem("2"),
@@ -271,6 +302,8 @@ class CompareSelectionSessionTest {
         )
         repository.setMediaItemsForTesting(allItems)
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
+        advanceUntilIdle()
         
         repository.deleteMediaItem("1")
         repository.deleteMediaItem("2")
@@ -282,7 +315,7 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testCompletion_FilterExhaustion() = runTest {
+    fun testCompletion_FilterExhaustion() = runTest(testDispatcher) {
         val allItems = listOf(
             createMediaItem("1", mediaType = "PHOTO"),
             createMediaItem("2", mediaType = "PHOTO"),
@@ -291,6 +324,7 @@ class CompareSelectionSessionTest {
         )
         repository.setMediaItemsForTesting(allItems)
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
         
         repository.setCompareMediaType(CompareMediaTypeFilter.VIDEOS)
         advanceUntilIdle()
@@ -300,35 +334,41 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testCompareAgain_Resets() = runTest {
+    fun testCompareAgain_Resets() = runTest(testDispatcher) {
         val allItems = (1..6).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(allItems)
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
         
         repository.recordCompareSelectionVote(repository.pairwiseState.value.optionA.id)
+        advanceUntilIdle()
         assertEquals(2, repository.compareSelectionSession.value.roundNumber)
         
         repository.restartCompareSelectionSession()
+        advanceUntilIdle()
         assertEquals(1, repository.compareSelectionSession.value.roundNumber)
         assertEquals(0, repository.compareSelectionSession.value.wins)
     }
 
     @Test
-    fun testSessionExit_RestoresGlobal() = runTest {
+    fun testSessionExit_RestoresGlobal() = runTest(testDispatcher) {
         repository.startCompareSelectionSession(setOf("1", "2", "3", "4"))
+        advanceUntilIdle()
         assertTrue(repository.compareSelectionSession.value.isActive)
         
         repository.exitCompareSelectionSession()
+        advanceUntilIdle()
         assertFalse(repository.compareSelectionSession.value.isActive)
     }
 
     @Test
-    fun testCompletion_RoundLimit() = runTest {
+    fun testCompletion_RoundLimit() = runTest(testDispatcher) {
         // Use 20 items to avoid pair exhaustion
         val allItems = (1..20).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(allItems)
         
         repository.startCompareSelectionSession((1..20).map { it.toString() }.toSet())
+        advanceUntilIdle()
         
         repeat(50) {
             repository.recordCompareSelectionVote(repository.pairwiseState.value.optionA.id)
@@ -344,12 +384,12 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testDeleteLeft_ConsumesPairAndAdvancesToNewPair() = runTest {
+    fun testDeleteLeft_ConsumesPairAndAdvancesToNewPair() = runTest(testDispatcher) {
         val allItems = (1..10).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(allItems)
         
         repository.refreshPairwiseCandidatePoolAndSelectNext(true)
-        Thread.sleep(200)
+        advanceUntilIdle()
         
         val initialPair = repository.pairwiseState.value
         val leftId = initialPair.optionA.id
@@ -358,7 +398,7 @@ class CompareSelectionSessionTest {
         assertTrue("Initial pair must have optionB", rightId.isNotEmpty())
 
         repository.deleteComparisonMedia(leftId)
-        Thread.sleep(200)
+        advanceUntilIdle()
 
         val nextPair = repository.pairwiseState.value
         assertFalse("Deleted left item must be removed from repo", repository.mediaItems.value.any { it.id == leftId })
@@ -371,12 +411,12 @@ class CompareSelectionSessionTest {
     }
 
     @Test
-    fun testDeleteRight_ConsumesPairAndAdvancesToNewPair() = runTest {
+    fun testDeleteRight_ConsumesPairAndAdvancesToNewPair() = runTest(testDispatcher) {
         val allItems = (1..10).map { createMediaItem(it.toString()) }
         repository.setMediaItemsForTesting(allItems)
         
         repository.refreshPairwiseCandidatePoolAndSelectNext(true)
-        Thread.sleep(200)
+        advanceUntilIdle()
         
         val initialPair = repository.pairwiseState.value
         val leftId = initialPair.optionA.id
@@ -385,7 +425,7 @@ class CompareSelectionSessionTest {
         assertTrue("Initial pair must have optionB", rightId.isNotEmpty())
 
         repository.deleteComparisonMedia(rightId)
-        Thread.sleep(200)
+        advanceUntilIdle()
 
         val nextPair = repository.pairwiseState.value
         assertFalse("Deleted right item must be removed from repo", repository.mediaItems.value.any { it.id == rightId })

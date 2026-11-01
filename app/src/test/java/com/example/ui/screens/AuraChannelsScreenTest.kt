@@ -3,11 +3,15 @@ package com.example.ui.screens
 import com.example.data.ChannelRegistry
 import com.example.data.ChannelState
 import com.example.data.MediaRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -22,8 +26,14 @@ class AuraChannelsScreenTest {
 
     @Before
     fun setUp() {
+        Dispatchers.setMain(testDispatcher)
         repository = MediaRepository(testDispatcher)
         viewModel = ChannelViewModel(repository)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
     }
 
     @Test

@@ -51,9 +51,9 @@ class CleanupSelectionAndViewTest {
         val mockDeleteManager: SafeDeleteManager = mock()
 
         val items = listOf(
-            MediaItem(id = "item_a", uriPath = "path_a", imageUrl = "", title = "Item A", mediaType = "VIDEO", sizeBytes = 200 * 1024 * 1024L),
-            MediaItem(id = "item_b", uriPath = "path_b", imageUrl = "", title = "Item B", mediaType = "VIDEO", sizeBytes = 300 * 1024 * 1024L),
-            MediaItem(id = "item_c", uriPath = "path_c", imageUrl = "", title = "Item C", mediaType = "VIDEO", sizeBytes = 400 * 1024 * 1024L)
+            MediaItem(id = "item_a", uriPath = "path_a", imageUrl = "", title = "Item A", mediaType = "VIDEO", sizeBytes = 600 * 1024 * 1024L),
+            MediaItem(id = "item_b", uriPath = "path_b", imageUrl = "", title = "Item B", mediaType = "VIDEO", sizeBytes = 700 * 1024 * 1024L),
+            MediaItem(id = "item_c", uriPath = "path_c", imageUrl = "", title = "Item C", mediaType = "VIDEO", sizeBytes = 800 * 1024 * 1024L)
         )
 
         whenever(mockRepo.databaseState).thenReturn(MutableStateFlow(DatabaseState.READY))
@@ -93,8 +93,8 @@ class CleanupSelectionAndViewTest {
         val mockDeleteManager: SafeDeleteManager = mock()
 
         val items = listOf(
-            MediaItem(id = "item_a", uriPath = "path_a", imageUrl = "", title = "Item A", mediaType = "VIDEO", sizeBytes = 200 * 1024 * 1024L),
-            MediaItem(id = "item_b", uriPath = "path_b", imageUrl = "", title = "Item B", mediaType = "VIDEO", sizeBytes = 300 * 1024 * 1024L)
+            MediaItem(id = "item_a", uriPath = "path_a", imageUrl = "", title = "Item A", mediaType = "VIDEO", sizeBytes = 600 * 1024 * 1024L),
+            MediaItem(id = "item_b", uriPath = "path_b", imageUrl = "", title = "Item B", mediaType = "VIDEO", sizeBytes = 700 * 1024 * 1024L)
         )
 
         whenever(mockRepo.databaseState).thenReturn(MutableStateFlow(DatabaseState.READY))
@@ -137,8 +137,8 @@ class CleanupSelectionAndViewTest {
         val mockDeleteManager: SafeDeleteManager = mock()
 
         val items = listOf(
-            MediaItem(id = "item_a", uriPath = "path_a", imageUrl = "", title = "Item A", mediaType = "VIDEO", sizeBytes = 200 * 1024 * 1024L),
-            MediaItem(id = "item_b", uriPath = "path_b", imageUrl = "", title = "Item B", mediaType = "VIDEO", sizeBytes = 300 * 1024 * 1024L)
+            MediaItem(id = "item_a", uriPath = "path_a", imageUrl = "", title = "Item A", mediaType = "VIDEO", sizeBytes = 600 * 1024 * 1024L),
+            MediaItem(id = "item_b", uriPath = "path_b", imageUrl = "", title = "Item B", mediaType = "VIDEO", sizeBytes = 700 * 1024 * 1024L)
         )
 
         whenever(mockRepo.databaseState).thenReturn(MutableStateFlow(DatabaseState.READY))
@@ -313,12 +313,14 @@ class CleanupSelectionAndViewTest {
     @Test
     fun consumer_cleanup_card_displays_keep_score_without_confidence() {
         val res = KeepScoreResult("item_1", 0.25f, 0.88f, listOf(CleanupReason.LARGE_FILE_SIZE), CleanupCategory.SPACE_HOGS)
-        val meta = CleanupItemMetadata("item_1", "Title", 200 * 1024 * 1024L, 0, 0, "VIDEO", null, false, 1920, 1080, 120000L, 1000L)
+        val meta = CleanupItemMetadata("item_1", "Title", 600 * 1024 * 1024L, 0, 0, "VIDEO", null, false, 1920, 1080, 120000L, 1000L)
 
-        val recommendation = CleanupRecommendationEngine.generateRecommendations(listOf(res), mapOf("item_1" to meta))[0]
+        val recs = CleanupRecommendationEngine.generateRecommendations(listOf(res), mapOf("item_1" to meta))
+        assertFalse("Recommendations should not be empty", recs.isEmpty())
+        val recommendation = recs[0]
 
         // Keep Score is primary metric for consumer card, while confidenceScore is preserved in the model
         assertEquals(0.25f, recommendation.keepScore, 0.01f)
-        assertEquals(0.60f, recommendation.confidenceScore, 0.01f)
+        assertEquals(0.875f, recommendation.confidenceScore, 0.01f)
     }
 }

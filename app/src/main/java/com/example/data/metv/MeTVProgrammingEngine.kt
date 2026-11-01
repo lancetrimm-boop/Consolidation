@@ -206,7 +206,11 @@ class MeTVProgrammingEngine {
             }
 
             // Controlled Epoch Rotation Variation for Fresh Sequences on Refresh
-            val epochVariation = (((item.id.hashCode() xor refreshEpoch).hashCode() and 0x7FFFFFFF) % 100) / 1000.0f
+            val epochVariation = if (refreshEpoch > 0) {
+                (((item.id.hashCode() xor refreshEpoch).hashCode() and 0x7FFFFFFF) % 100) / 1000.0f
+            } else {
+                0.0f
+            }
             val finalScore = score + epochVariation
 
             // Construct Flattering Aesthetic Explanation
@@ -215,11 +219,13 @@ class MeTVProgrammingEngine {
             item to finalScore
         }
 
-        // 4. Sort deterministically by final blended score descending with tie-breaking by refreshEpoch
+        val originalIndices = homogeneousPool.withIndex().associate { it.value.id to it.index }
+
+        // 4. Sort deterministically by final blended score descending with tie-breaking by original position
         val sortedItems = scoredItems
             .sortedWith(
                 compareByDescending<Pair<MediaItem, Float>> { it.second }
-                    .thenBy { (it.first.id.hashCode() xor refreshEpoch).toString() }
+                    .thenBy { originalIndices[it.first.id] ?: 0 }
             )
             .map { it.first }
             .take(targetCount)

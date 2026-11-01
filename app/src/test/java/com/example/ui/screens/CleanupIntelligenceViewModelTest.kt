@@ -42,7 +42,7 @@ class CleanupIntelligenceViewModelTest {
         val items = listOf(
             MediaItem(id = "1", title = "Protected", mediaType = "PHOTO", isFavorite = true, sizeBytes = 1000L),
             MediaItem(id = "2", title = "LowRated", mediaType = "PHOTO", rating = 1.0f, exposureCount = 50, viewCount = 1, sizeBytes = 5000L),
-            MediaItem(id = "3", title = "SpaceHog", mediaType = "VIDEO", sizeBytes = 200 * 1024 * 1024L, viewCount = 0)
+            MediaItem(id = "3", title = "SpaceHog", mediaType = "VIDEO", sizeBytes = 600 * 1024 * 1024L, viewCount = 0)
         )
         repository.setMediaItemsForTesting(items)
         
@@ -64,7 +64,7 @@ class CleanupIntelligenceViewModelTest {
         assertFalse(state.isLocked)
         assertTrue(state.totalRecommendations > 0)
         assertEquals(1, state.forgottenCount)
-        assertEquals(5000L + 200 * 1024 * 1024L, state.potentialStorageRecovery)
+        assertEquals(5000L + 600 * 1024 * 1024L, state.potentialStorageRecovery)
     }
 
     @Test
